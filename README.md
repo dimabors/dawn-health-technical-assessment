@@ -6,8 +6,8 @@ Please switch to the branch that corresponds to the role you are interviewing fo
 
 | Role | Branch |
 |------|--------|
-| DevOps Engineer | `context/devops` |
-| Site Reliability Engineer | `context/sre` |
+| [DevOps Engineer](https://github.com/DawnHealthGit/dawn-health-technical-assessment/tree/context/devops) | `context/devops` |
+| [Site Reliability Engineer](https://github.com/DawnHealthGit/dawn-health-technical-assessment/tree/context/sre) | `context/sre` |
 
 ```bash
 # DevOps Engineer
