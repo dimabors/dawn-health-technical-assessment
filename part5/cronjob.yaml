@@ -1,0 +1,62 @@
+# Part 5.2 — Starter: Stale Resource Cleanup CronJob
+#
+# On a shared AKS cluster, completed and failed pods accumulate over time.
+# Kubernetes does not automatically garbage-collect them. This creates noise
+# in kubectl output, gradually consumes etcd storage, and makes it harder
+# to spot real problems at a glance.
+#
+# Your tasks:
+#   1. Complete the CronJob so that it:
+#      - Runs every hour
+#      - Deletes all Succeeded pods across ALL namespaces
+#      - Deletes all Failed pods across ALL namespaces
+#      - Deletes all completed Jobs (those with status.conditions type=Complete)
+#        that are older than 24 hours
+#
+#   2. Add a ServiceAccount named platform-cleanup-sa in the argocd namespace.
+#
+#   3. Add a ClusterRole granting only the permissions this job actually needs
+#      (principle of least privilege — think carefully about which verbs and
+#      resources are required, and nothing more).
+#
+#   4. Add a ClusterRoleBinding connecting the ServiceAccount to the ClusterRole.
+#
+# All resources should be in this file, separated by ---
+#
+# Note: This job runs cluster-wide. Add a comment explaining why a ClusterRole
+# is required here rather than a namespaced Role, and what the security
+# implications are of granting cluster-wide delete on pods and jobs.
+
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cleanup-stale-resources
+  namespace: argocd
+spec:
+  schedule: "TODO"         # TODO: Set a cron schedule that runs every hour
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: TODO  # TODO: Reference the ServiceAccount defined below
+          restartPolicy: OnFailure
+          containers:
+            - name: kubectl
+              image: bitnami/kubectl:latest
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  # TODO: Write the shell commands to:
+                  #   1. Delete all Succeeded pods across all namespaces
+                  #   2. Delete all Failed pods across all namespaces
+                  #   3. Delete completed Jobs older than 24 hours
+                  #
+                  # Hint: kubectl delete pods --field-selector=... --all-namespaces
+                  # Hint: for Jobs, you may need to combine kubectl get and kubectl delete
+                  #
+                  # Add an echo before each step so the job logs are readable.
+                  echo "TODO: implement cleanup"

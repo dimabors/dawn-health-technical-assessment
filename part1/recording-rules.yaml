@@ -1,0 +1,60 @@
+# Part 1.1 — Starter: SLI Recording Rules
+#
+# The team-alpha-backend service is a patient-facing REST API.
+#
+# Recording rules pre-aggregate expensive PromQL expressions so that dashboards
+# and alerts evaluate quickly and consistently. The three rules below form the
+# foundation of the SLO measurement defined in Part 1.2.
+#
+# The backend exposes standard Prometheus histogram and counter metrics:
+#   - http_requests_total{job, namespace, status_code}
+#   - http_request_duration_seconds{job, namespace, le}  (histogram)
+#
+# Your tasks:
+#   1. Complete the PromQL expression for each recording rule.
+#   2. The naming convention job:<metric>:<aggregation> is intentional — keep it.
+#   3. Add a comment on each rule explaining what it measures and why it is
+#      useful for SLO tracking.
+
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: team-alpha-backend-recording-rules
+  namespace: team-alpha
+  labels:
+    # This label must match the ruleSelector on your Prometheus / Mimir ruler.
+    # Check your monitoring stack configuration for the correct value.
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: team-alpha-backend:sli
+      interval: 30s
+      rules:
+
+        # Request rate — total requests per second over a 5m window,
+        # broken down by status code so errors and successes can be separated.
+        - record: job:http_requests_total:rate5m
+          expr: |
+            # TODO: Write a PromQL expression for per-second request rate
+            # broken down by job, namespace, and status_code.
+            # Use rate() over a 5m window.
+            TODO
+
+        # Error ratio — proportion of 5xx responses relative to all requests,
+        # expressed as a value between 0 and 1 (0.001 = 0.1% error rate).
+        - record: job:http_errors_total:ratio_rate5m
+          expr: |
+            # TODO: Write a PromQL expression for the 5xx error ratio.
+            # Numerator: rate of requests where status_code starts with "5"
+            # Denominator: rate of all requests
+            # Result should be a value between 0 and 1.
+            TODO
+
+        # p95 latency — 95th percentile request duration over a 5m window.
+        # Used to track latency SLIs and identify tail-latency degradation.
+        - record: job:http_request_duration_seconds:p95_rate5m
+          expr: |
+            # TODO: Write a PromQL expression for p95 request latency.
+            # Use histogram_quantile(0.95, ...) with rate() over a 5m window.
+            # Aggregate by job and namespace.
+            TODO

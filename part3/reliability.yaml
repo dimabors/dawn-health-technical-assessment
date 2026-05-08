@@ -1,0 +1,65 @@
+# Part 3.1 — Starter: Reliability Manifests
+#
+# The team-alpha-backend Deployment is defined below with sensible resource
+# requests and limits, health probes, and a named port.
+#
+# It currently has no autoscaling and no disruption protection — a node drain
+# or unexpected traffic spike could take the service down entirely.
+#
+# Your tasks:
+#   1. Add a HorizontalPodAutoscaler (HPA) that:
+#      - Targets this Deployment by name
+#      - Scales between 2 and 10 replicas
+#      - Scales up when average CPU utilisation across pods exceeds 70%
+#      - Scales up when average memory utilisation across pods exceeds 80%
+#
+#   2. Add a PodDisruptionBudget (PDB) that:
+#      - Ensures at least 1 pod remains available during voluntary disruptions
+#        (node drain, cluster upgrades, etc.)
+#      - Is scoped to this Deployment's pods using a label selector
+#
+# Add both resources to this file, separated by ---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: team-alpha-backend
+  namespace: team-alpha
+  labels:
+    app: team-alpha-backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: team-alpha-backend
+  template:
+    metadata:
+      labels:
+        app: team-alpha-backend
+    spec:
+      containers:
+        - name: backend
+          image: dawnhealthacr.azurecr.io/team-alpha/backend:v1.0.0
+          ports:
+            - containerPort: 8080
+              name: http
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 512Mi
