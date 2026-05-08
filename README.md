@@ -1,6 +1,6 @@
 # Dawn Health — Technical Assessments
 
-This repository contains technical assessments for candidates interviewing for engineering roles at Dawn Health.
+This repository contains technical assessments for candidates interviewing for platform roles at Dawn Health.
 
 Please switch to the branch that corresponds to the role you are interviewing for and follow the instructions in that branch's README.
 
