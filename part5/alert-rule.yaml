@@ -1,0 +1,49 @@
+# Part 5.2 — Starter file: PrometheusRule
+#
+# Add at least two meaningful alert rules for the team-alpha-backend service.
+#
+# Guidelines:
+#   - Choose rules that are genuinely actionable in production
+#   - Avoid rules that will fire on transient noise (use appropriate `for` durations)
+#   - Every rule must include an `action` annotation with the first steps
+#     an on-call engineer should take when the alert fires
+#   - Use labels: severity (warning|critical), team, component
+#
+# The skeleton below contains one example rule structure to get you started.
+# Replace or extend it with your own rules.
+
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: team-alpha-backend-alerts
+  namespace: team-alpha
+  labels:
+    # This label must match what Mimir/Prometheus operator watches for rules
+    role: alert-rules
+spec:
+  groups:
+    - name: team-alpha-backend
+      interval: 30s
+      rules:
+
+        # Example structure — replace with real rules
+        - alert: ExampleHighErrorRate
+          expr: |
+            # TODO: Write a PromQL expression for your alert condition
+            # Hint: rate(), histogram_quantile(), and label filters are your friends
+            TODO_REPLACE_WITH_REAL_EXPR > 0
+          for: 5m
+          labels:
+            severity: warning        # warning | critical
+            team: team-alpha
+            component: backend
+          annotations:
+            summary: "TODO: one-line description with relevant {{ $labels.* }} values"
+            description: |
+              TODO: Explain what is happening, why it matters, and the potential
+              impact. Include the current metric value using {{ $value | humanize }}.
+            action: |
+              TODO: List the first 2-3 kubectl or Grafana commands an on-call
+              engineer should run immediately when this fires.
+
+        # TODO: Add your second (and any additional) alert rules here

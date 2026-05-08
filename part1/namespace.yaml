@@ -1,0 +1,22 @@
+# Part 1.1 — Starter file
+#
+# A new product team (team-alpha) is joining the shared AKS cluster.
+# The Namespace is already defined below.
+#
+# Your tasks — add the following resources to this file, separated by ---
+#
+#   1. A Role that allows team members to manage Deployments, Services,
+#      ConfigMaps, and Pods within this namespace only.
+#
+#   2. A RoleBinding that grants that Role to the Azure AD group with
+#      object ID 00000000-0000-0000-0000-000000000001.
+#
+#   3. A ServiceAccount named team-alpha-workload-sa for the team's pods.
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: team-alpha
+  labels:
+    team: alpha
+    environment: dev

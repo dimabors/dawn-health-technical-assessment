@@ -1,0 +1,31 @@
+# Part 5.1 — Starter file: ServiceMonitor
+#
+# Complete the TODO sections to configure Prometheus scraping
+# for the team-alpha-backend service.
+#
+# The backend:
+#   - Is labelled:  app: team-alpha-backend
+#   - Exposes metrics at port 8080, path /metrics
+
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: team-alpha-backend
+  namespace: team-alpha
+  labels:
+    # TODO: Add the label that causes the Prometheus operator / Grafana Alloy
+    # to pick up this ServiceMonitor. Check what selector your monitoring stack uses.
+    release: TODO
+spec:
+  selector:
+    matchLabels:
+      # TODO: Set the label selector to target the team-alpha-backend Service
+      app: TODO
+  namespaceSelector:
+    matchNames:
+      - team-alpha
+  endpoints:
+    - port: TODO        # TODO: Set the named port or port number to scrape
+      path: TODO        # TODO: Set the metrics path
+      interval: TODO    # TODO: Set a sensible scrape interval for a production service
+      scrapeTimeout: 10s

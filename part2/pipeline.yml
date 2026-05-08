@@ -1,0 +1,61 @@
+# Part 2 — Starter file: Azure DevOps CI Pipeline
+#
+# Complete the sections marked with TODO.
+# Do not change the overall stage/job structure — add steps within the existing jobs.
+
+trigger:
+  branches:
+    include:
+      - main
+      - feature/*
+
+variables:
+  imageRepository: 'team-alpha/backend'
+  containerRegistry: 'dawnhealthacr.azurecr.io'
+  # Tag with both build number and commit SHA for traceability
+  imageTag: '$(Build.BuildNumber)-$(Build.SourceVersion)'
+
+stages:
+
+  - stage: CI
+    displayName: 'Build, Test & Scan'
+    jobs:
+      - job: Build
+        displayName: 'Build and test'
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          # TODO: Add a step to build the Docker image
+          # Tag it as $(containerRegistry)/$(imageRepository):$(imageTag)
+
+          # TODO: Add a step to run unit tests
+          # Tests should run inside the container (or as a separate step — your choice)
+
+          # TODO: Add an image vulnerability scan step
+          # Use a tool of your choice (e.g. Trivy, Grype, or Azure Defender for Containers)
+          # The job must FAIL if critical vulnerabilities are found
+
+          # TODO: Add a step to push the image to the container registry
+          # This step should only run on the main branch
+          # Hint: use a condition expression
+
+  - stage: UpdateGitOps
+    displayName: 'Update GitOps repository'
+    dependsOn: CI
+    # TODO: Add a condition so this stage only runs on the main branch
+    jobs:
+      - job: UpdateImageTag
+        displayName: 'Bump image tag in GitOps repo'
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          # TODO: Add steps to:
+          #   1. Clone the GitOps repository (this repo, or a separate one)
+          #   2. Update the image tag in part3/argocd-application.yaml (or a Kustomize/Helm values file)
+          #      to $(imageTag)
+          #   3. Commit and push the change with a meaningful message
+          #
+          # ArgoCD will detect the Git change and sync the dev environment automatically.
+          # See part3/argocd-application.yaml for the Application definition.
+          - script: echo "TODO - implement GitOps update"
+            displayName: 'Placeholder — replace this step'

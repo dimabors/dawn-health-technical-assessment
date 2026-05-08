@@ -1,0 +1,37 @@
+# Part 3.1 — Starter file: ArgoCD Application
+#
+# Complete the sections marked with TODO.
+# This Application tells ArgoCD where to find the Kubernetes manifests
+# for team-alpha-backend and where to deploy them.
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: team-alpha-backend-dev
+  namespace: argocd
+spec:
+  project: default
+
+  source:
+    # TODO: Set the repoURL to your forked repository
+    repoURL: https://github.com/YOUR_ORG/YOUR_FORK.git
+    targetRevision: main
+    # TODO: Set the path to the directory containing your Kubernetes manifests
+    # (e.g. part1/ if you want to deploy what you built in Part 1, or a separate manifests/ folder)
+    path: TODO
+
+  destination:
+    server: https://kubernetes.default.svc
+    # TODO: Set the target namespace
+    namespace: TODO
+
+  syncPolicy:
+    automated:
+      # TODO: Enable pruning so resources removed from Git are deleted from the cluster
+      prune: TODO
+      selfHeal: true
+    syncOptions:
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+    # TODO: Add a retry block — if a sync fails, ArgoCD should retry up to 3 times
+    #       with an increasing backoff starting at 5 seconds
