@@ -20,3 +20,49 @@ metadata:
   labels:
     team: alpha
     environment: dev
+---
+# Role scoped to team-alpha namespace — grants full lifecycle management
+# of the four resource types the team needs. Using a Role (not ClusterRole)
+# ensures permissions are namespace-local and cannot bleed into other namespaces.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: team-alpha-manager
+  namespace: team-alpha
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "configmaps"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+---
+# RoleBinding ties the Role above to the Azure Active Directory (AAD) group via its object ID.
+# Using a Group subject means any member of that AAD group inherits the Role
+# without needing per-user bindings.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: team-alpha-manager-binding
+  namespace: team-alpha
+  # Binds the Role to the AAD/EntraID group with object ID 00000000-0000-0000-0000-000000000001
+subjects:
+  - kind: Group
+    name: "00000000-0000-0000-0000-000000000001" # Azure AD group object ID
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: Role
+  name: team-alpha-manager
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# Dedicated ServiceAccount for team-alpha workloads.
+# Pods should reference this SA explicitly so they get a distinct identity
+# rather than using the default SA, which limits blast radius if credentials
+# are compromised.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: team-alpha-workload-sa
+  namespace: team-alpha

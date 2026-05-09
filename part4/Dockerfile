@@ -7,7 +7,8 @@
 # Add comments to explain your changes — we are assessing your reasoning,
 # not just the end result.
 
-FROM node:18
+FROM node:18 
+# node18 is a very old image of the Docker Hub, and contain vulnerabilities. https://snyk.io/test/docker/node%3A18.0-alpine, consider using a newer version >= 22
 
 WORKDIR /app
 
@@ -25,7 +26,8 @@ COPY . .
 RUN npm install
 
 # Application needs to connect to the database
-ENV DB_PASSWORD=mysecretpassword123
+ENV DB_PASSWORD=mysecretpassword123 
+# Sensitive password kept in the Dockerfile, should be passed as an env variable at runtime or stored in a secret manager. 
 ENV NODE_ENV=production
 ENV PORT=3000
 
