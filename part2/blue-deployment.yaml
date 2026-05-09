@@ -1,0 +1,46 @@
+# Part 2 — Blue deployment (current stable version)
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: team-alpha-backend-blue
+  namespace: team-alpha
+  labels:
+    app: team-alpha-backend
+    slot: blue
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: team-alpha-backend
+      slot: blue
+  template:
+    metadata:
+      labels:
+        app: team-alpha-backend
+        slot: blue
+    spec:
+      serviceAccountName: team-alpha-workload-sa
+      containers:
+        - name: backend
+          # The image reference below is a Kustomize ALIAS, not a real registry path.
+          # Each overlay (part2/overlays/<env>/kustomization.yaml) maps this alias to the
+          # concrete registry image + tag for that environment. The literal string
+          # "set-by-overlay" is intentional — if you ever see it in a rendered manifest,
+          # it means an overlay forgot to map the alias, which is a clear, loud signal.
+          image: team-alpha-backend-blue:set-by-overlay
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi

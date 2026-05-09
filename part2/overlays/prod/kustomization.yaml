@@ -1,0 +1,15 @@
+# Part 2 — Production overlay
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../..
+
+images:
+  - name: team-alpha-backend-blue
+    newName: dawnhealthacr.azurecr.io/team-alpha/backend
+    newTag: v1.0.0
+  - name: team-alpha-backend-green
+    newName: dawnhealthacr.azurecr.io/team-alpha/backend
+    newTag: v1.0.0

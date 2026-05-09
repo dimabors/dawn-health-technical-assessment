@@ -1,0 +1,19 @@
+# Part 2 — Kustomize base
+#
+# This base bundles the blue/green Deployments and the routing Service.
+# It is environment-agnostic: image tags are placeholders (backend-stable / backend-next)
+# that overlays map to real images. Never apply this base directly — apply an overlay.
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: team-alpha
+
+resources:
+  - blue-deployment.yaml
+  - green-deployment.yaml
+  - service.yaml
+
+commonLabels:
+  app.kubernetes.io/name: team-alpha-backend
+  app.kubernetes.io/part-of: team-alpha

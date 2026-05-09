@@ -110,33 +110,44 @@ stages:
             displayName: 'Clone GitOps repository'
 
           - script: |
+              set -euo pipefail
+
               git config user.email "$(Build.RequestedForEmail)"
               git config user.name "$(Build.RequestedFor)"
 
-              # Extract the previously deployed image tag from argocd-application.yaml
-              PREV_TAG=$(grep 'targetRevision:' part3/argocd-application.yaml | awk '{print $2}' | tr -d '[:space:]')
+              PREV_TAG=$(grep -A1 'name: team-alpha-backend-green' part2/overlays/dev/kustomization.yaml \
+                          | grep 'newTag:' | awk '{print $2}' | tr -d '[:space:]')
               PREV_DEPLOYED_SHA="${PREV_TAG##*-}"
 
-              if [ "$PREV_DEPLOYED_SHA" = "$PREV_TAG" ]; then
-                # No deployments found — initial state (e.g. targetRevision: main), show last commit only
+              if [ -z "$PREV_TAG" ] || [ "$PREV_DEPLOYED_SHA" = "$PREV_TAG" ]; then
+                # Initial state (e.g. newTag: v1.1.0) — no SHA encoded yet
                 COMMIT_LOG=$(git log --oneline -1)
               elif git rev-parse --verify "$PREV_DEPLOYED_SHA" >/dev/null 2>&1; then
-                # Show every commit merged since the last successful deployment
                 COMMIT_LOG=$(git log --oneline "$PREV_DEPLOYED_SHA"..HEAD)
                 [ -z "$COMMIT_LOG" ] && COMMIT_LOG="No new commits since last deployment (pipeline re-run)"
               else
-                # SHA not found locally (shallow clone or very old tag) — fall back
                 COMMIT_LOG="Previous deployment SHA not found in repo — $(git log --oneline -1)"
               fi
 
-              # Update the targetRevision in argocd-application.yaml to the new image tag
-              sed -i "s|targetRevision:.*|targetRevision: $(imageTag)|" part3/argocd-application.yaml
+              # --- Update the dev overlay ---
+              # `kustomize edit set image` is the idiomatic, idempotent way to bump a tag.
+              # It rewrites only the `newTag` line for the matching image alias — no sed.
+              # Install kustomize on the agent (ubuntu-latest doesn't ship it by default).
+              if ! command -v kustomize >/dev/null 2>&1; then
+                curl -sS "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+                sudo mv kustomize /usr/local/bin/
+              fi
 
-              git add part3/argocd-application.yaml
+              cd part2/overlays/dev
+              kustomize edit set image \
+                team-alpha-backend-green=$(containerRegistry)/$(imageRepository):$(imageTag)
+              cd -
 
-              MSG=$(printf 'ci: bump image tag to %s [skip ci]\n\nChanges in this deployment:\n%s\n\nTriggered by: %s' \
+              git add part2/overlays/dev/kustomization.yaml
+
+              # --- Commit and push ---
+              MSG=$(printf 'ci: bump dev team-alpha-backend-green to %s [skip ci]\n\nChanges in this deployment:\n%s\n\nTriggered by: %s' \
                 "$(imageTag)" "$COMMIT_LOG" "$(Build.RequestedFor)")
               git commit -m "$MSG"
               git push origin HEAD:main
-              
-            displayName: 'Update image tag in GitOps repo and push'
+            displayName: 'Bump dev image tag in Kustomize overlay and push'

@@ -1,0 +1,19 @@
+# Part 2 — Service for blue/green traffic routing
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: team-alpha-backend
+  namespace: team-alpha
+  labels:
+    app: team-alpha-backend
+spec:
+  type: ClusterIP
+  selector:
+    app: team-alpha-backend
+    slot: blue
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+      protocol: TCP
