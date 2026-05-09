@@ -1,0 +1,23 @@
+# Workload-identity-enabled namespace + ServiceAccount.
+# Variables substituted in CI:
+#   ${NAMESPACE}        e.g. team-alpha-dev
+#   ${SA_NAME}          e.g. team-alpha-workload-sa
+#   ${UAMI_CLIENT_ID}   clientId from `az deployment group show` output
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${NAMESPACE}
+  labels:
+    team: team-alpha
+    environment: ${ENVIRONMENT}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${SA_NAME}
+  namespace: ${NAMESPACE}
+  annotations:
+    azure.workload.identity/client-id: ${UAMI_CLIENT_ID}
+  labels:
+    azure.workload.identity/use: "true"
