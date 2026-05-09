@@ -20,14 +20,20 @@ az account set --subscription 0ab058e3-88c1-4c7d-9f7a-d13afddf3e41
 # 2. Resource group (one-time; CI runs RG-scoped deployments and won't create it).
 az group create -n rg-team-alpha -l northeurope
 
-# 3. Bootstrap the GitHub Actions deployer UAMI + federated credentials + RG roles.
+# 3. Register resource providers (subscription-scope, one-time).
+#    The CI deployer UAMI is RG-scoped Contributor and intentionally cannot do this.
+foreach ($p in 'Microsoft.ContainerRegistry','Microsoft.ContainerService','Microsoft.KeyVault','Microsoft.ManagedIdentity','Microsoft.OperationalInsights','Microsoft.Insights') {
+  az provider register -n $p
+}
+
+# 4. Bootstrap the GitHub Actions deployer UAMI + federated credentials + RG roles.
 az deployment group create `
   --resource-group rg-team-alpha `
   --template-file deploy/bicep/gha-deployer.bicep `
   --parameters repo='dimabors/dawn-health-technical-assessment' `
                branch='context/devops-dev'
 
-# 4. Read the values you need to paste into GitHub.
+# 5. Read the values you need to paste into GitHub.
 az deployment group show `
   -g rg-team-alpha -n gha-deployer `
   --query "properties.outputs" -o json

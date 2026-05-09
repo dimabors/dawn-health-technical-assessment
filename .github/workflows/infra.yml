@@ -95,13 +95,9 @@ jobs:
           tenant-id:       ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Register resource providers (idempotent)
-        run: |
-          for p in Microsoft.ContainerRegistry Microsoft.ContainerService \
-                   Microsoft.KeyVault Microsoft.ManagedIdentity \
-                   Microsoft.OperationalInsights Microsoft.OperationsManagement; do
-            az provider register -n "$p" --wait
-          done
+      # Resource provider registration is a subscription-scope action, performed
+      # once during local bootstrap (see deploy/INITIAL-DEPLOY.md). The deployer
+      # UAMI is intentionally Contributor on the RG only.
 
       - name: Deploy GitHub Actions deployer (self-managing)
         run: |
