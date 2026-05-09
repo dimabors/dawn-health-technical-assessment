@@ -1,0 +1,157 @@
+# Infrastructure deployment via GitHub Actions + Azure OIDC.
+#
+# This workflow runs the same two PowerShell scripts that you ran locally:
+#   1) deploy/Deploy-Infrastructure.ps1   (RG, ACR, AKS — shared platform)
+#   2) deploy/Deploy-WorkloadIdentity.ps1 (per-env KV, namespaces, UAMIs, fed creds)
+#
+# Authentication: GitHub OIDC -> federated credential on the deployer UAMI
+# 'id-team-alpha-gha-deployer'. No client secret is stored in GitHub.
+#
+# Required GitHub repository VARIABLES (Settings -> Secrets and variables ->
+# Actions -> Variables tab — these are NOT secrets, they are public IDs):
+#   AZURE_CLIENT_ID         clientId of id-team-alpha-gha-deployer
+#   AZURE_TENANT_ID         412247cf-f335-4dec-8aa9-9209e17737d6
+#   AZURE_SUBSCRIPTION_ID   0ab058e3-88c1-4c7d-9f7a-d13afddf3e41
+#   AZURE_RG                rg-team-alpha
+#   AZURE_LOCATION          northeurope
+#   AKS_CLUSTER             aks-shared
+#   ACR_NAME                ecapacr
+#
+# Trigger: every push to context/devops-dev that touches infra files,
+# plus manual dispatch with an option to skip the slow AKS bootstrap.
+
+name: infra
+
+on:
+  push:
+    branches: ['context/devops-dev']
+    paths:
+      - 'part1/**'
+      - 'deploy/**'
+      - '.github/workflows/infra.yml'
+  pull_request:
+    branches: ['context/devops-dev']
+    paths:
+      - 'part1/**'
+      - 'deploy/**'
+      - '.github/workflows/infra.yml'
+  workflow_dispatch:
+    inputs:
+      skip_bootstrap:
+        description: 'Skip the platform bootstrap (RG/ACR/AKS) — only redeploy workload identity'
+        type: boolean
+        default: false
+      environments:
+        description: 'Comma-separated subset of dev,staging,prod'
+        type: string
+        default: 'dev,staging,prod'
+
+permissions:
+  id-token: write   # required for Azure OIDC
+  contents: read
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  # -------------------------------------------------------------------------
+  # PR runs: validate Bicep without touching Azure (no Azure login needed).
+  # -------------------------------------------------------------------------
+  validate:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Bicep
+        run: az bicep install
+      - name: Bicep build (lint + compile)
+        run: az bicep build --file part1/workload-identity.bicep --stdout > $null
+
+  # -------------------------------------------------------------------------
+  # Bootstrap shared platform (RG + ACR + AKS). Slow (~7-10 min on first run,
+  # idempotent and fast on every subsequent run).
+  # -------------------------------------------------------------------------
+  bootstrap:
+    if: github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.skip_bootstrap != true)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy-Infrastructure.ps1
+        run: |
+          ./deploy/Deploy-Infrastructure.ps1 `
+            -ResourceGroup '${{ vars.AZURE_RG }}' `
+            -Location '${{ vars.AZURE_LOCATION }}' `
+            -AksClusterName '${{ vars.AKS_CLUSTER }}' `
+            -AcrName '${{ vars.ACR_NAME }}'
+
+  # -------------------------------------------------------------------------
+  # Per-environment workload identity. Runs after bootstrap (or alone via
+  # skip_bootstrap=true). Each env runs as its own job for clean logs and
+  # to allow GitHub Environment protection rules (manual approval for prod).
+  # -------------------------------------------------------------------------
+  workload-identity:
+    needs: bootstrap
+    if: |
+      always() &&
+      (needs.bootstrap.result == 'success' || needs.bootstrap.result == 'skipped') &&
+      github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [dev, staging, prod]
+    environment: ${{ matrix.environment }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Skip if not in selected environments
+        id: gate
+        run: |
+          $selected = '${{ inputs.environments }}'
+          if (-not $selected) { $selected = 'dev,staging,prod' }
+          $list = $selected -split ',' | ForEach-Object { $_.Trim() }
+          if ($list -notcontains '${{ matrix.environment }}') {
+            echo "skip=true" >> $env:GITHUB_OUTPUT
+          } else {
+            echo "skip=false" >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Azure login (OIDC)
+        if: steps.gate.outputs.skip != 'true'
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Install kubelogin (for AKS get-credentials)
+        if: steps.gate.outputs.skip != 'true'
+        uses: azure/use-kubelogin@v1
+        with:
+          kubelogin-version: 'v0.1.4'
+
+      - name: Deploy-WorkloadIdentity.ps1 (${{ matrix.environment }})
+        if: steps.gate.outputs.skip != 'true'
+        run: |
+          ./deploy/Deploy-WorkloadIdentity.ps1 `
+            -Environments @('${{ matrix.environment }}') `
+            -ResourceGroup '${{ vars.AZURE_RG }}' `
+            -AksClusterName '${{ vars.AKS_CLUSTER }}' `
+            -Location '${{ vars.AZURE_LOCATION }}'
+
+      - name: Upload outputs
+        if: steps.gate.outputs.skip != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: workload-identity-${{ matrix.environment }}
+          path: deploy/outputs/${{ matrix.environment }}.json
+          if-no-files-found: warn

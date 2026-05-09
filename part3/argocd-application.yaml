@@ -41,7 +41,7 @@ spec:
       - PruneLast=true
       - CreateNamespace=true
     # TODO->Done: Add a retry block — if a sync fails, ArgoCD should retry up to 3 times
-    #             with an increasing backoff starting at 5 seconds
+    #             with an increasing backoff starting at 5 seconds.
     retry:
       limit: 3
       backoff:
