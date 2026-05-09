@@ -25,31 +25,79 @@ stages:
         pool:
           vmImage: ubuntu-latest
         steps:
-          # TODO: Add a step to build the Docker image
-          # Tag it as $(containerRegistry)/$(imageRepository):$(imageTag)
-
-          # TODO: Add a step to run unit tests
-          # Tests should run inside the container (or as a separate step — your choice)
-
-          # TODO: Add an image vulnerability scan step
+###
+         # TODO->Done: Add a step to build the Docker image
+         # Tag it as $(containerRegistry)/$(imageRepository):$(imageTag)
+          - task: Docker@2
+            displayName: 'Build Docker image'
+            inputs:
+              command: build
+              dockerfile: 'part4/Dockerfile'
+              buildContext: 'part4'
+              repository: '$(containerRegistry)/$(imageRepository)'
+              tags: '$(imageTag)'
+###
+          # TODO->Done: Add a step to run unit tests
+          # Tests run inside the built container to match the production environment exactly
+          - script: |
+              docker run --rm \
+                $(containerRegistry)/$(imageRepository):$(imageTag) \
+                npm test
+            displayName: 'Run unit tests inside container'
+###
+          # TODO->Done: Add an image vulnerability scan step
           # Use a tool of your choice (e.g. Trivy, Grype, or Azure Defender for Containers)
           # The job must FAIL if critical vulnerabilities are found
 
-          # TODO: Add a step to push the image to the container registry
+          # Using Trivy via Docker
+          # --exit-code 2 causes the job to FAIL if any CRITICAL vulnerabilities are found
+          - script: |
+              echo "Pulling aquasec/trivy:latest — alpine-based image "
+              docker run --rm \
+                -v /var/run/docker.sock:/var/run/docker.sock \
+                aquasec/trivy:latest image \
+                --exit-code 2 \
+                --severity CRITICAL \
+                --no-progress \
+                $(containerRegistry)/$(imageRepository):$(imageTag)
+              EXIT_CODE=$?
+              if [ $EXIT_CODE -eq 2 ]; then
+                echo "##[error]CRITICAL vulnerabilities found — failing the build"
+                exit 2
+              elif [ $EXIT_CODE -eq 1 ]; then
+                echo "##[error]Trivy scan failed to complete (network/image error)"
+                exit 1
+              elif [ $EXIT_CODE -ne 0 ]; then
+                echo "##[error]Trivy exited with unexpected code $EXIT_CODE — failing the build"
+                exit 1
+              fi
+            displayName: 'Scan image for critical vulnerabilities'
+###
+          # TODO->Done: Add a step to push the image to the container registry
           # This step should only run on the main branch
           # Hint: use a condition expression
+          - task: Docker@2
+            displayName: 'Push Docker image to ACR'
+            condition: and(succeeded(), eq(variables['Build.SourceBranchName'], 'main'))
+            inputs:
+              command: push
+              containerRegistry: 'dawnhealthacr'
+              repository: '$(imageRepository)'
+              tags: '$(imageTag)'
 
   - stage: UpdateGitOps
     displayName: 'Update GitOps repository'
     dependsOn: CI
-    # TODO: Add a condition so this stage only runs on the main branch
+    # TODO->Done: Add a condition so this stage only runs on the main branch
+    # Additionally added teh succeed condition to ensure this stage only runs if the CI stage succeeded. 
+    condition: and(succeeded(), eq(variables['Build.SourceBranchName'], 'main'))
     jobs:
       - job: UpdateImageTag
         displayName: 'Bump image tag in GitOps repo'
         pool:
           vmImage: ubuntu-latest
         steps:
-          # TODO: Add steps to:
+          # TODO->Done: Add steps to:
           #   1. Clone the GitOps repository (this repo, or a separate one)
           #   2. Update the image tag in part3/argocd-application.yaml (or a Kustomize/Helm values file)
           #      to $(imageTag)
@@ -57,5 +105,38 @@ stages:
           #
           # ArgoCD will detect the Git change and sync the dev environment automatically.
           # See part3/argocd-application.yaml for the Application definition.
-          - script: echo "TODO - implement GitOps update"
-            displayName: 'Placeholder — replace this step'
+          - checkout: self
+            persistCredentials: true
+            displayName: 'Clone GitOps repository'
+
+          - script: |
+              git config user.email "$(Build.RequestedForEmail)"
+              git config user.name "$(Build.RequestedFor)"
+
+              # Extract the previously deployed image tag from argocd-application.yaml
+              PREV_TAG=$(grep 'targetRevision:' part3/argocd-application.yaml | awk '{print $2}' | tr -d '[:space:]')
+              PREV_DEPLOYED_SHA="${PREV_TAG##*-}"
+
+              if [ "$PREV_DEPLOYED_SHA" = "$PREV_TAG" ]; then
+                # No deployments found — initial state (e.g. targetRevision: main), show last commit only
+                COMMIT_LOG=$(git log --oneline -1)
+              elif git rev-parse --verify "$PREV_DEPLOYED_SHA" >/dev/null 2>&1; then
+                # Show every commit merged since the last successful deployment
+                COMMIT_LOG=$(git log --oneline "$PREV_DEPLOYED_SHA"..HEAD)
+                [ -z "$COMMIT_LOG" ] && COMMIT_LOG="No new commits since last deployment (pipeline re-run)"
+              else
+                # SHA not found locally (shallow clone or very old tag) — fall back
+                COMMIT_LOG="Previous deployment SHA not found in repo — $(git log --oneline -1)"
+              fi
+
+              # Update the targetRevision in argocd-application.yaml to the new image tag
+              sed -i "s|targetRevision:.*|targetRevision: $(imageTag)|" part3/argocd-application.yaml
+
+              git add part3/argocd-application.yaml
+
+              MSG=$(printf 'ci: bump image tag to %s [skip ci]\n\nChanges in this deployment:\n%s\n\nTriggered by: %s' \
+                "$(imageTag)" "$COMMIT_LOG" "$(Build.RequestedFor)")
+              git commit -m "$MSG"
+              git push origin HEAD:main
+              
+            displayName: 'Update image tag in GitOps repo and push'
