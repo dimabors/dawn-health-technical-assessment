@@ -3,6 +3,8 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
+namespace: team-alpha-dev
+
 resources:
 - ../../base
 
@@ -15,4 +17,4 @@ images:
   newTag: v1.0.0
 - name: team-alpha-backend-green
   newName: ecapacr.azurecr.io/team-alpha/backend
-  newTag: 7-6acd4ebb970fa41dab5fa108ed286e4781b85d4e
+  newTag: 15-487f334553839c6cbddd070745cf3af14612aaf0
