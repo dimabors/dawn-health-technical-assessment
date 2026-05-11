@@ -13,19 +13,18 @@ metadata:
   name: team-alpha-backend
   namespace: team-alpha
   labels:
-    # TODO: Add the label that causes the Prometheus operator / Grafana Alloy
-    # to pick up this ServiceMonitor. Check what selector your monitoring stack uses.
-    release: TODO
+    # Must match the serviceMonitorSelector on the Prometheus/Alloy CR —
+    # kube-prometheus-stack defaults to { release: <helm-release-name> }
+    release: kube-prometheus-stack
 spec:
   selector:
     matchLabels:
-      # TODO: Set the label selector to target the team-alpha-backend Service
-      app: TODO
+      app: team-alpha-backend
   namespaceSelector:
     matchNames:
       - team-alpha
   endpoints:
-    - port: TODO        # TODO: Set the named port or port number to scrape
-      path: TODO        # TODO: Set the metrics path
-      interval: TODO    # TODO: Set a sensible scrape interval for a production service
+    - port: http          # named port from service.yaml
+      path: /metrics
+      interval: 30s       # 30s is standard for a production service; go lower only if you need sub-minute alerting
       scrapeTimeout: 10s

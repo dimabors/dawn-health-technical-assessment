@@ -181,7 +181,11 @@ _Your answer here._
 
 > Walk through your investigation of intermittent HTTP 504s — specific tools, queries, and what you are confirming or ruling out at each step.
 
-_Your answer here._
+504 means the upstream (the backend pod) didn't respond in time — the pods are running, so the issue is either slow processing, a blocked downstream call, or a networking problem between the ingress and the pod. I work through layers:
+
+A 504 can be caused by a slow handler, but also by a downstream dependency (e.g. Key Vault) or a network issue. So I check each layer to isolate the root cause.
+Havign in mind hte infrastructure I would follow where and how the timeout is happening — is it the backend itself, a downstream dependency, or the network layer between the ingress and the pod? 
+
 
 ---
 
@@ -189,7 +193,9 @@ _Your answer here._
 
 > Describe your rollback procedure in a GitOps model — actions, order, and communication. Aim for under 5 minutes.
 
-_Your answer here._
+Deployed on Friday, 2pm — error rate spikes from 0.5% to 12% at 2:02pm, correlating with the deploy. Then decreases and increases again. That pattern suggests a rollback immediately to minimize patient impact, but also that the bad image is still in the registry and can be redeployed if needed after investigation.
+The communication is critical here — the incident channel should be alerted immediately with a clear message that includes the error rate, timing, and correlation with the deploy, along with the action being taken (rollback now, investigation later). This sets expectations for stakeholders and keeps everyone informed. Then a decisive rollback action can be taken without delay, and the team can focus on the investigation after the immediate impact is mitigated. That would take some time to write and send, but it's essential for transparency and trust.
+Git revert is the key here — it allows for a single-command rollback that automatically triggers ArgoCD to sync back to the previous image.
 
 ---
 
