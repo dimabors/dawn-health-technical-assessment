@@ -18,4 +18,4 @@ images:
   newTag: v1.1.0
 - name: team-alpha-backend-green
   newName: ecapacr.azurecr.io/team-alpha/backend
-  newTag: 22-ca2d7fdaa2c8112ac03969c4f8c37c50130a3d65
+  newTag: 31-233afd14cbb30924f21d97434b206b7edd485040
