@@ -39,6 +39,11 @@ env:
 jobs:
   build-test-scan:
     runs-on: ubuntu-latest
+    # Declaring an environment makes the OIDC subject claim 'environment:dev'
+    # regardless of whether the trigger is a branch push, tag push, or PR.
+    # This means a single FIC (gh-env-dev) covers all build triggers without
+    # needing per-tag or per-branch FICs (managed identity FICs don't support wildcards).
+    environment: dev
     outputs:
       image_tag: ${{ steps.set-tag.outputs.image_tag }}
       is_promotion: ${{ steps.set-tag.outputs.is_promotion }}

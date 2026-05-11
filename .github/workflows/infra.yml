@@ -21,16 +21,8 @@ name: infra
 on:
   push:
     branches: ['context/devops-dev', 'context/devops', 'main']
-    paths:
-      - 'deploy/bicep/**'
-      - 'deploy/k8s/**'
-      - '.github/workflows/infra.yml'
   pull_request:
     branches: ['context/devops-dev', 'context/devops', 'main']
-    paths:
-      - 'deploy/bicep/**'
-      - 'deploy/k8s/**'
-      - '.github/workflows/infra.yml'
   workflow_dispatch:
 
 permissions:
@@ -49,6 +41,7 @@ jobs:
   validate:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    environment: ${{ github.base_ref == 'main' && 'prod' || github.base_ref == 'context/devops' && 'staging' || 'dev' }}
     steps:
       - uses: actions/checkout@v4
 
