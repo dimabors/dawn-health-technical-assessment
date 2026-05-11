@@ -16,7 +16,9 @@ name: ci
 on:
   push:
     branches: [main, "context/devops-dev", "context/devops", "feature/**"]
-    tags: ["v*.*.*"]       # triggers a versioned release build
+    tags:
+      - "v*.*.*"           # release build → bumps green (stable slot)
+      - "v*.*.*-preview"   # preview build → bumps blue (preview slot)
   pull_request:
     branches: [main, "context/devops-dev", "context/devops"]
   workflow_dispatch:
@@ -126,18 +128,19 @@ jobs:
           # Tags always push the gitops commit back to context/devops-dev
           # (they represent a dev→prod promotion flow starting in dev).
           case "${{ github.ref_name }}" in
-            main)           OVERLAY=prod;    PUSH_BRANCH=main ;;
-            context/devops) OVERLAY=staging; PUSH_BRANCH=context/devops ;;
-            v*.*.*)         OVERLAY=dev;     PUSH_BRANCH=context/devops-dev ;;
-            *)              OVERLAY=dev;     PUSH_BRANCH="${{ github.ref_name }}" ;;
+            main)              OVERLAY=prod;    PUSH_BRANCH=main;               SLOT=green ;;
+            context/devops)    OVERLAY=staging; PUSH_BRANCH=context/devops;    SLOT=green ;;
+            v*.*.*-preview)    OVERLAY=dev;     PUSH_BRANCH=context/devops-dev; SLOT=blue  ;;
+            v*.*.*)            OVERLAY=dev;     PUSH_BRANCH=context/devops-dev; SLOT=green ;;
+            *)                 OVERLAY=dev;     PUSH_BRANCH="${{ github.ref_name }}"; SLOT=green ;;
           esac
 
           cd part2/overlays/$OVERLAY
           kustomize edit set image \
-            team-alpha-backend-green="$REGISTRY/$IMAGE_REPOSITORY:$IMAGE_TAG"
+            "team-alpha-backend-$SLOT=$REGISTRY/$IMAGE_REPOSITORY:$IMAGE_TAG"
           cd -
 
           git add part2/overlays/$OVERLAY/kustomization.yaml
-          git commit -m "ci: bump $OVERLAY team-alpha-backend-green to $IMAGE_TAG [skip ci]"
+          git commit -m "ci: bump $OVERLAY team-alpha-backend-$SLOT to $IMAGE_TAG [skip ci]"
           # Push back to the branch (not the tag ref, which is read-only).
           git push origin HEAD:$PUSH_BRANCH
