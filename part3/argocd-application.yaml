@@ -15,9 +15,8 @@ spec:
   source:
     # TODO->Done: Set the repoURL to your forked repository
     repoURL: https://github.com/dimabors/dawn-health-technical-assessment.git
-    # Track main — image promotions are commits on main, not separate Git tags.
-    # The CI pipeline writes new image tags into the dev overlay below.
-    targetRevision: main
+    # CI pushes dev overlay bumps to context/devops-dev, so track that branch.
+    targetRevision: context/devops-dev
     # TODO->Done: Set the path to the directory containing your Kubernetes manifests
     # (e.g. part1/ if you want to deploy what you built in Part 1, or a separate manifests/ folder)
 
@@ -28,8 +27,7 @@ spec:
 
   destination:
     server: https://kubernetes.default.svc
-    # TODO->Done: Set the target namespace
-    namespace: team-alpha
+    namespace: team-alpha-dev
 
   syncPolicy:
     automated:

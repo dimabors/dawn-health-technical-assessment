@@ -1,0 +1,24 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: team-alpha-backend-staging
+  namespace: argocd
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/dimabors/dawn-health-technical-assessment.git
+    # CI pushes staging overlay bumps to context/devops.
+    targetRevision: context/devops
+    path: part2/overlays/staging
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: team-alpha-staging
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false  # namespace created by infra pipeline

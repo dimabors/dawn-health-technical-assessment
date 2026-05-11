@@ -170,6 +170,29 @@ jobs:
             envsubst < deploy/k8s/namespace-sa.yaml | kubectl apply -f -
           done
 
+      - name: Install ArgoCD (idempotent)
+        run: |
+          kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+          kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+          # Wait up to 3 min for the API server to be ready before applying Applications.
+          kubectl wait --for=condition=available deployment/argocd-server \
+            -n argocd --timeout=180s
+
+      - name: Apply ArgoCD Applications
+        run: |
+          # Apply only the Applications relevant to this branch's environments.
+          case "${{ github.ref_name }}" in
+            main)
+              kubectl apply -f part3/argocd-application.yaml \
+                            -f part3/argocd-application-staging.yaml \
+                            -f part3/argocd-application-prod.yaml ;;
+            context/devops)
+              kubectl apply -f part3/argocd-application.yaml \
+                            -f part3/argocd-application-staging.yaml ;;
+            *)
+              kubectl apply -f part3/argocd-application.yaml ;;
+          esac
+
       - name: Upload outputs
         uses: actions/upload-artifact@v4
         with:
