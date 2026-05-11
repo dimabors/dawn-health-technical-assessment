@@ -15,7 +15,7 @@ name: ci
 
 on:
   push:
-    branches: [main, "feature/**"]
+    branches: [main, "context/devops-dev", "context/devops", "feature/**"]
   workflow_dispatch:
 
 permissions:
@@ -37,7 +37,7 @@ jobs:
 
       # ---- Auth to Azure / ACR via OIDC (no stored passwords) -----------------
       - name: Azure login (OIDC)
-        if: github.ref == 'refs/heads/main'
+        if: "!startsWith(github.ref, 'refs/heads/feature/')"
         uses: azure/login@v2
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
@@ -45,7 +45,7 @@ jobs:
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
       - name: ACR login
-        if: github.ref == 'refs/heads/main'
+        if: "!startsWith(github.ref, 'refs/heads/feature/')"
         run: az acr login --name "${{ vars.ACR_NAME }}"
 
       # ---- Build --------------------------------------------------------------
@@ -81,20 +81,24 @@ jobs:
             echo "::error::Trivy failed with exit $ec"; exit 1
           fi
 
-      # ---- Push (main only) ---------------------------------------------------
+      # ---- Push (deploy branches only, not feature/**) ----------------------
       - name: Push image
-        if: github.ref == 'refs/heads/main'
+        if: "!startsWith(github.ref, 'refs/heads/feature/')"
         run: docker push "$REGISTRY/$IMAGE_REPOSITORY:$IMAGE_TAG"
 
   update-gitops:
-    name: Bump dev overlay and push
+    name: Bump overlay and promote
     needs: build-test-scan
-    if: github.ref == 'refs/heads/main' && success()
+    # Skip for feature branches — they only build/test/scan.
+    if: "!startsWith(github.ref, 'refs/heads/feature/') && success()"
+    # Approval gate: add Required Reviewers in GitHub → Settings → Environments.
+    # dev/staging pass through automatically unless reviewers are configured.
+    environment: ${{ github.ref_name == 'main' && 'prod' || github.ref_name == 'context/devops' && 'staging' || 'dev' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0          # need history for the commit log diff
+          fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install kustomize
@@ -102,7 +106,7 @@ jobs:
           curl -sS "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
           sudo mv kustomize /usr/local/bin/
 
-      - name: Bump dev overlay
+      - name: Bump overlay
         env:
           IMAGE_TAG: ${{ needs.build-test-scan.outputs.image_tag }}
         run: |
@@ -110,26 +114,19 @@ jobs:
           git config user.email "${{ github.actor }}@users.noreply.github.com"
           git config user.name  "${{ github.actor }}"
 
-          PREV_TAG=$(grep -A1 'name: team-alpha-backend-green' part2/overlays/dev/kustomization.yaml \
-                      | grep 'newTag:' | awk '{print $2}' | tr -d '[:space:]')
-          PREV_SHA="${PREV_TAG##*-}"
-          if [ -z "$PREV_TAG" ] || [ "$PREV_SHA" = "$PREV_TAG" ]; then
-            COMMIT_LOG=$(git log --oneline -1)
-          elif git rev-parse --verify "$PREV_SHA" >/dev/null 2>&1; then
-            COMMIT_LOG=$(git log --oneline "$PREV_SHA"..HEAD)
-            [ -z "$COMMIT_LOG" ] && COMMIT_LOG="No new commits since last deployment"
-          else
-            COMMIT_LOG="Previous deployment SHA not found in repo — $(git log --oneline -1)"
-          fi
+          # Each branch owns one overlay: devops-dev→dev, devops→staging, main→prod.
+          case "${{ github.ref_name }}" in
+            main)           OVERLAY=prod ;;
+            context/devops) OVERLAY=staging ;;
+            *)              OVERLAY=dev ;;
+          esac
 
-          cd part2/overlays/dev
+          cd part2/overlays/$OVERLAY
           kustomize edit set image \
             team-alpha-backend-green="$REGISTRY/$IMAGE_REPOSITORY:$IMAGE_TAG"
           cd -
 
-          git add part2/overlays/dev/kustomization.yaml
-
-          MSG=$(printf 'ci: bump dev team-alpha-backend-green to %s [skip ci]\n\nChanges in this deployment:\n%s\n\nTriggered by: %s' \
-                "$IMAGE_TAG" "$COMMIT_LOG" "${{ github.actor }}")
-          git commit -m "$MSG"
-          git push origin HEAD:main
+          git add part2/overlays/$OVERLAY/kustomization.yaml
+          git commit -m "ci: bump $OVERLAY team-alpha-backend-green to $IMAGE_TAG [skip ci]"
+          # Push back to the same branch that triggered this run.
+          git push origin HEAD:${{ github.ref_name }}

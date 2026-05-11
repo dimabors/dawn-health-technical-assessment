@@ -21,8 +21,14 @@ param location string = resourceGroup().location
 @description('GitHub repo in owner/repo form.')
 param repo string
 
-@description('Branch the infra workflow runs from (e.g. context/devops-dev).')
-param branch string = 'context/devops-dev'
+@description('Primary branch (production CI runs from here).')
+param branch string = 'main'
+
+@description('Additional branches to trust (dev/staging feature branches). Optional.')
+param extraBranches array = [
+  'context/devops-dev'   // development branch
+  'context/devops'       // staging branch
+]
 
 @description('GitHub Environments to grant trust to.')
 param githubEnvironments array = [
@@ -45,7 +51,11 @@ resource deployer 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' 
 var ghIssuer = 'https://token.actions.githubusercontent.com'
 var audience = [ 'api://AzureADTokenExchange' ]
 
-// Branch trust
+// Exclude the primary branch from the extra-branch list so we never generate
+// duplicate FIC names when the workflow runs from one of the extra branches.
+var filteredExtraBranches = filter(extraBranches, b => b != branch)
+
+// Primary branch trust (main → production CI)
 resource fcBranch 'Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentityCredentials@2023-01-31' = {
   parent: deployer
   name: 'gh-branch-${replace(branch, '/', '-')}'
@@ -55,6 +65,19 @@ resource fcBranch 'Microsoft.ManagedIdentity/userAssignedIdentities/federatedIde
     audiences: audience
   }
 }
+
+// Extra branch trust (context/devops-dev = dev, context/devops = staging)
+@batchSize(1)
+resource fcExtraBranches 'Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentityCredentials@2023-01-31' = [for b in filteredExtraBranches: {
+  parent: deployer
+  name: 'gh-branch-${replace(b, '/', '-')}'
+  properties: {
+    issuer: ghIssuer
+    subject: 'repo:${repo}:ref:refs/heads/${b}'
+    audiences: audience
+  }
+  dependsOn: [ fcBranch ]
+}]
 
 // Per-environment trust (serialized — Azure rejects concurrent FIC writes on a single UAMI)
 @batchSize(1)
@@ -66,7 +89,7 @@ resource fcEnv 'Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdenti
     subject: 'repo:${repo}:environment:${env}'
     audiences: audience
   }
-  dependsOn: [ fcBranch ]
+  dependsOn: [ fcExtraBranches ]
 }]
 
 // Pull request trust

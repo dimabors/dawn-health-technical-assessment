@@ -13,17 +13,20 @@
 #   ACR_NAME                ecapacr
 #   GH_REPO                 dimabors/dawn-health-technical-assessment
 
+# context/devops-dev = deploy to dev only
+# context/devops     = deploy to staging
+# main               = deploy to prod
 name: infra
 
 on:
   push:
-    branches: ['context/devops-dev']
+    branches: ['context/devops-dev', 'context/devops', 'main']
     paths:
       - 'deploy/bicep/**'
       - 'deploy/k8s/**'
       - '.github/workflows/infra.yml'
   pull_request:
-    branches: ['context/devops-dev']
+    branches: ['context/devops-dev', 'context/devops', 'main']
     paths:
       - 'deploy/bicep/**'
       - 'deploy/k8s/**'
@@ -85,6 +88,7 @@ jobs:
   deploy:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'prod' || github.ref_name == 'context/devops' && 'staging' || 'dev' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -118,13 +122,27 @@ jobs:
                          aksClusterName='${{ vars.AKS_CLUSTER }}' \
                          acrName='${{ vars.ACR_NAME }}'
 
-      - name: Deploy workload identity (all envs in one shot)
+      - name: Resolve target environments for this branch
+        id: envs
+        run: |
+          # context/devops-dev -> dev only
+          # context/devops    -> dev + staging
+          # main              -> dev + staging + prod
+          case "${{ github.ref_name }}" in
+            main)               ENVS='["dev","staging","prod"]' ;;
+            context/devops)     ENVS='["dev","staging"]' ;;
+            *)                  ENVS='["dev"]' ;;
+          esac
+          echo "environments=$ENVS" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy workload identity (scoped to branch environments)
         run: |
           az deployment group create \
             --resource-group "${{ vars.AZURE_RG }}" \
             --name "wi-${{ github.run_number }}" \
             --template-file deploy/bicep/workload-identity.bicep \
-            --parameters aksClusterName='${{ vars.AKS_CLUSTER }}'
+            --parameters aksClusterName='${{ vars.AKS_CLUSTER }}' \
+                         environments='${{ steps.envs.outputs.environments }}'
           az deployment group show \
             --resource-group "${{ vars.AZURE_RG }}" \
             --name "wi-${{ github.run_number }}" \
@@ -151,6 +169,31 @@ jobs:
             echo "==> $ENVIRONMENT  ns=$NAMESPACE  clientId=$UAMI_CLIENT_ID"
             envsubst < deploy/k8s/namespace-sa.yaml | kubectl apply -f -
           done
+
+      - name: Install ArgoCD (idempotent)
+        run: |
+          kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+          # --server-side avoids the 256 KB annotation limit hit by the applicationsets CRD.
+          # --force-conflicts takes ownership of fields previously managed by kubectl-client-side-apply.
+          kubectl apply -n argocd --server-side --force-conflicts \
+            -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+          kubectl wait --for=condition=available deployment/argocd-server \
+            -n argocd --timeout=180s
+
+      - name: Apply ArgoCD Applications
+        run: |
+          # Apply only the Applications relevant to this branch's environments.
+          case "${{ github.ref_name }}" in
+            main)
+              kubectl apply -f part3/argocd-application.yaml \
+                            -f part3/argocd-application-staging.yaml \
+                            -f part3/argocd-application-prod.yaml ;;
+            context/devops)
+              kubectl apply -f part3/argocd-application.yaml \
+                            -f part3/argocd-application-staging.yaml ;;
+            *)
+              kubectl apply -f part3/argocd-application.yaml ;;
+          esac
 
       - name: Upload outputs
         uses: actions/upload-artifact@v4
