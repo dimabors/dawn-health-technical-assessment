@@ -10,9 +10,7 @@ kind: Kustomization
 namespace: team-alpha
 
 resources:
-  - blue-deployment.yaml
-  - green-deployment.yaml
-  - service.yaml
+  - base
 
 commonLabels:
   app.kubernetes.io/name: team-alpha-backend

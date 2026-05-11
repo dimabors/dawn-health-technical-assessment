@@ -1,0 +1,17 @@
+# Part 2 — Kustomize base (indirected through part2/base/ to satisfy kustomize's
+# load-restrictor which blocks overlays from referencing ancestor directories).
+# Overlays reference ../../base; this file references the sibling manifests in part2/.
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: team-alpha
+
+resources:
+  - ../blue-deployment.yaml
+  - ../green-deployment.yaml
+  - ../service.yaml
+
+commonLabels:
+  app.kubernetes.io/name: team-alpha-backend
+  app.kubernetes.io/part-of: team-alpha
