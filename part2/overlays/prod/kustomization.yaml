@@ -11,7 +11,7 @@ resources:
 images:
 - name: team-alpha-backend-blue
   newName: ecapacr.azurecr.io/team-alpha/backend
-  newTag: v1.1.0  # placeholder; CI bumps this on v*.*.*-preview tag
+  newTag: v1.1.0
 - name: team-alpha-backend-green
   newName: ecapacr.azurecr.io/team-alpha/backend
-  newTag: 21-1060ebe9f63749fee39d7dd28500cc7362887ae3
+  newTag: 31-233afd14cbb30924f21d97434b206b7edd485040
