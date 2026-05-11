@@ -57,6 +57,7 @@ ENV NODE_ENV=production \
 # --chown avoids a separate RUN chown layer.
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/src ./src
+COPY --from=build --chown=node:node /app/tests ./tests
 COPY --from=build --chown=node:node /app/package.json ./package.json
 
 USER node
