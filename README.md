@@ -1,3 +1,4 @@
+[![infra](https://github.com/dimabors/dawn-health-technical-assessment/actions/workflows/infra.yml/badge.svg)](https://github.com/dimabors/dawn-health-technical-assessment/actions/workflows/infra.yml)
 # Dawn Health — DevOps Engineer Technical Assessment
 
 > **Suggested time:** ~4 hours | **We deeply respect your time** — it is fine to skip tasks; just document your intended approach in [`SUBMISSION.md`](./SUBMISSION.md).
