@@ -14,8 +14,8 @@ resources:
 
 images:
 - name: team-alpha-backend-blue
-  newName: dawnhealthacr.azurecr.io/team-alpha/backend
-  newTag: v1.0.0
+  newName: ecapacr.azurecr.io/team-alpha/backend
+  newTag: v1.1.0
 - name: team-alpha-backend-green
   newName: ecapacr.azurecr.io/team-alpha/backend
-  newTag: 17-a187d69ce8e76f4da701ba630d074abfe85f9b6b
+  newTag: 31-233afd14cbb30924f21d97434b206b7edd485040

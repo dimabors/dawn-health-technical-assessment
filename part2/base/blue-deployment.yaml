@@ -7,7 +7,7 @@ metadata:
     app: team-alpha-backend
     slot: blue
 spec:
-  replicas: 2
+  replicas: 1  # preview slot — one replica is sufficient for validation before flip
   selector:
     matchLabels:
       app: team-alpha-backend

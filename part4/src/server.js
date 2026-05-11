@@ -13,6 +13,13 @@ const PATIENTS = [
   { id: 'p-003', name: 'Carol Davis',   dob: '2001-01-07', condition: 'asthma' },
 ];
 
+// Appointments dataset — new in v1.1.1 (blue slot preview).
+const APPOINTMENTS = [
+  { id: 'a-001', patientId: 'p-001', date: '2026-05-20', time: '09:00', provider: 'Dr. Smith',   status: 'confirmed' },
+  { id: 'a-002', patientId: 'p-002', date: '2026-05-21', time: '14:30', provider: 'Dr. Patel',   status: 'confirmed' },
+  { id: 'a-003', patientId: 'p-003', date: '2026-05-22', time: '11:00', provider: 'Dr. Johnson', status: 'pending'   },
+];
+
 const server = http.createServer((req, res) => {
   if (req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -24,6 +31,13 @@ const server = http.createServer((req, res) => {
   if (req.url === '/api/v1/patients') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ version: VERSION, count: PATIENTS.length, patients: PATIENTS }));
+    return;
+  }
+
+  // GET /api/v1/appointments — list all appointments (new in v1.1.1)
+  if (req.url === '/api/v1/appointments') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ version: VERSION, count: APPOINTMENTS.length, appointments: APPOINTMENTS }));
     return;
   }
 

@@ -21,16 +21,8 @@ name: infra
 on:
   push:
     branches: ['context/devops-dev', 'context/devops', 'main']
-    paths:
-      - 'deploy/bicep/**'
-      - 'deploy/k8s/**'
-      - '.github/workflows/infra.yml'
   pull_request:
     branches: ['context/devops-dev', 'context/devops', 'main']
-    paths:
-      - 'deploy/bicep/**'
-      - 'deploy/k8s/**'
-      - '.github/workflows/infra.yml'
   workflow_dispatch:
 
 permissions:
@@ -49,6 +41,7 @@ jobs:
   validate:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    environment: ${{ github.base_ref == 'main' && 'prod' || github.base_ref == 'context/devops' && 'staging' || 'dev' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -111,6 +104,17 @@ jobs:
             --template-file deploy/bicep/gha-deployer.bicep \
             --parameters repo='${{ vars.GH_REPO }}' \
                          branch='${{ github.ref_name }}'
+
+      - name: Wait for AKS to reach a terminal state
+        run: |
+          STATE=$(az aks show -g "${{ vars.AZURE_RG }}" -n "${{ vars.AKS_CLUSTER }}" \
+                    --query provisioningState -o tsv 2>/dev/null || echo "NotFound")
+          echo "AKS provisioning state: $STATE"
+          if [[ "$STATE" == "Updating" || "$STATE" == "Creating" ]]; then
+            echo "Cluster is busy — waiting up to 10 min for it to finish..."
+            az aks wait -g "${{ vars.AZURE_RG }}" -n "${{ vars.AKS_CLUSTER }}" \
+              --updated --interval 30 --timeout 600
+          fi
 
       - name: Deploy platform (ACR + AKS + AcrPull)
         run: |
