@@ -1,0 +1,14 @@
+{
+  "name": "team-alpha-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Stub backend used to validate the assessment pipeline end-to-end.",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test tests/"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}
