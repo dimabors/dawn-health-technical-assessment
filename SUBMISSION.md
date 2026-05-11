@@ -121,7 +121,7 @@ _Optional notes here._
 
 > Describe the Kubernetes-side controls you would add. Cover securityContext fields, capability dropping, and cluster-wide enforcement.
 
-_Your answer here._
+
 
 ---
 
@@ -129,11 +129,15 @@ _Your answer here._
 
 > How does image scanning fit into a compliance-grade pipeline?
 
-_Your answer here._
+Scanning goes after the image is built but before it is pushed to the registry — this is the only position where it gates the rest of the pipeline. 
+In the current `part2/pipeline.yml` this is the `ScanImage` step that runs Trivy with `--exit-code 3 --severity CRITICAL`: if any critical CVE is found the step exits non-zero, the push step is skipped, and the build fails with a clear message. 
+This means a vulnerable image can never reach the registry, let alone a cluster.
+
+For a SaMD pipeline the scan result must also be stored as a build artefact (the full JSON report) so it forms part of the Design History File (DHF). 
+The threshold for failure should be agreed with QA — typically `CRITICAL` must fail the build immediately; `HIGH` fails unless it was agreed upon in the issue tracker.
 
 > What would you add beyond scanning (SBOMs, image signing, provenance attestation) and what problem does each solve?
 
-_Your answer here._
 
 ---
 
