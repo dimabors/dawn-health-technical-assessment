@@ -4,15 +4,15 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
-  - ../..
+- ../..
 
 # Resolve the image aliases used in the base Deployments to concrete registry
 # images and tags for the DEV environment. The CI pipeline updates the
 # `team-alpha-backend-green` newTag on every successful build on main.
 images:
-  - name: team-alpha-backend-blue
-    newName: dawnhealthacr.azurecr.io/team-alpha/backend
-    newTag: v1.0.0
-  - name: team-alpha-backend-green
-    newName: dawnhealthacr.azurecr.io/team-alpha/backend
-    newTag: v1.1.0
+- name: team-alpha-backend-blue
+  newName: dawnhealthacr.azurecr.io/team-alpha/backend
+  newTag: v1.0.0
+- name: team-alpha-backend-green
+  newName: ecapacr.azurecr.io/team-alpha/backend
+  newTag: 4-2a1c0a1080dafd8977af7c4bb2eda120d7cd8b62
