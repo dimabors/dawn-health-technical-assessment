@@ -26,24 +26,57 @@ spec:
       interval: 30s
       rules:
 
-        # Example structure — replace with real rules
-        - alert: ExampleHighErrorRate
+        # Rule 1 — sustained 5xx rate above 5% for 5 minutes
+        # 5m window avoids single-spike noise
+        - alert: HighErrorRate
           expr: |
-            # TODO: Write a PromQL expression for your alert condition
-            # Hint: rate(), histogram_quantile(), and label filters are your friends
-            TODO_REPLACE_WITH_REAL_EXPR > 0
+            rate(http_requests_total{namespace="team-alpha", status=~"5.."}[5m])
+              /
+            rate(http_requests_total{namespace="team-alpha"}[5m])
+              > 0.05
           for: 5m
           labels:
-            severity: warning        # warning | critical
+            severity: warning
             team: team-alpha
             component: backend
           annotations:
-            summary: "TODO: one-line description with relevant {{ $labels.* }} values"
+            summary: "team-alpha-backend error rate {{ $value | humanizePercentage }} (threshold 5%)"
             description: |
-              TODO: Explain what is happening, why it matters, and the potential
-              impact. Include the current metric value using {{ $value | humanize }}.
+              More than 5% of requests are returning 5xx for 5+ minutes.
+              Current rate: {{ $value | humanizePercentage }}.
+              Patient-facing workflows are degraded — investigate immediately.
             action: |
-              TODO: List the first 2-3 kubectl or Grafana commands an on-call
-              engineer should run immediately when this fires.
+              # 1. Check pod logs for panics / unhandled errors
+              kubectl logs -n team-alpha -l app=team-alpha-backend --tail=100 --since=5m
 
-        # TODO: Add your second (and any additional) alert rules here
+              # 2. Check recent deployments — did something go out?
+              kubectl rollout history deployment -n team-alpha
+
+              # 3. Open Grafana → team-alpha-backend dashboard → Error Rate panel
+              #    Filter by status_code to identify which endpoint is failing
+
+        # Rule 2 — p95 latency above 1 second for 10 minutes
+        # 10m window gives time for GC pauses / cold starts to settle
+        - alert: HighP95Latency
+          expr: |
+            histogram_quantile(
+              0.95,
+              rate(http_request_duration_seconds_bucket{namespace="team-alpha"}[5m])
+            ) > 1
+          for: 10m
+          labels:
+            severity: warning
+            team: team-alpha
+            component: backend
+          annotations:
+            summary: "team-alpha-backend p95 latency {{ $value | humanizeDuration }} (threshold 1s)"
+            description: |
+              95th-percentile response time has been above 1s for 10+ minutes.
+              Current p95: {{ $value | humanizeDuration }}.
+              May indicate database slowness, a downstream dependency, or resource exhaustion.
+            action: |
+              # 1. Check CPU/memory — is the pod resource-constrained?
+              kubectl top pod -n team-alpha -l app=team-alpha-backend
+
+              # 2. Check recent deployments — did something go out?
+              kubectl rollout history deployment -n team-alpha
