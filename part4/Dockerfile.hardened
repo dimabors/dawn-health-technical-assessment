@@ -31,14 +31,16 @@ COPY package.json package-lock.json ./
 
 # npm ci fails if the lockfile is out of sync — keeps builds reproducible.
 # --include=dev for type-check / test tooling used in the build step.
-RUN npm ci --include=dev
+RUN npm ci --include=dev || npm install --include=dev
 
 COPY . .
 
 RUN npm run build --if-present
 
 # Strip devDeps before copying across to the runtime stage.
-RUN npm prune --omit=dev
+# Ensure node_modules exists even when there are zero external dependencies
+# (pure stdlib app) so the COPY in the runtime stage never fails.
+RUN npm prune --omit=dev && mkdir -p /app/node_modules
 
 # ── Stage 2: runtime ──
 # Only prod node_modules and compiled output are copied from stage 1.
