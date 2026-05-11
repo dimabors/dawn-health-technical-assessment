@@ -1,0 +1,135 @@
+# GitHub Actions equivalent of part2/pipeline.yml.
+#
+# Uses Azure OIDC federation (no long-lived secrets in GitHub) to push to ACR.
+# Mirrors the same stages: build -> test -> Trivy scan -> push -> GitOps bump.
+#
+# Required GitHub repo variables (Settings -> Secrets and variables -> Actions -> Variables):
+#   AZURE_CLIENT_ID         App registration client ID with AcrPush on ACR
+#   AZURE_TENANT_ID         Azure AD tenant
+#   AZURE_SUBSCRIPTION_ID   Subscription containing ACR
+#   ACR_NAME                e.g. dawnhealthacr (without .azurecr.io)
+#
+# OIDC trust setup is documented in the chat reply.
+
+name: ci
+
+on:
+  push:
+    branches: [main, "feature/**"]
+  workflow_dispatch:
+
+permissions:
+  id-token: write   # required for Azure OIDC
+  contents: write   # required to push the GitOps commit back
+
+env:
+  IMAGE_REPOSITORY: team-alpha/backend
+  REGISTRY: ${{ vars.ACR_NAME }}.azurecr.io
+  IMAGE_TAG: ${{ github.run_number }}-${{ github.sha }}
+
+jobs:
+  build-test-scan:
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ env.IMAGE_TAG }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # ---- Auth to Azure / ACR via OIDC (no stored passwords) -----------------
+      - name: Azure login (OIDC)
+        if: github.ref == 'refs/heads/main'
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: ACR login
+        if: github.ref == 'refs/heads/main'
+        run: az acr login --name "${{ vars.ACR_NAME }}"
+
+      # ---- Build --------------------------------------------------------------
+      - name: Build image
+        run: |
+          docker build \
+            -f part4/Dockerfile.hardened \
+            -t "$REGISTRY/$IMAGE_REPOSITORY:$IMAGE_TAG" \
+            part4
+
+      # ---- Test inside the container (matches prod environment exactly) -------
+      - name: Run unit tests in container
+        run: |
+          docker run --rm \
+            "$REGISTRY/$IMAGE_REPOSITORY:$IMAGE_TAG" \
+            npm test
+
+      # ---- Vulnerability scan -------------------------------------------------
+      # Same logic as pipeline.yml: exit 2 = criticals found, exit 1 = scanner error.
+      - name: Trivy scan (CRITICAL only)
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy:latest image \
+            --exit-code 3 \
+            --severity CRITICAL \
+            --no-progress \
+            "$REGISTRY/$IMAGE_REPOSITORY:$IMAGE_TAG"
+          ec=$?
+          if [ $ec -eq 3 ]; then
+            echo "::error::CRITICAL vulnerabilities found"; exit 3
+          elif [ $ec -ne 0 ]; then
+            echo "::error::Trivy failed with exit $ec"; exit 1
+          fi
+
+      # ---- Push (main only) ---------------------------------------------------
+      - name: Push image
+        if: github.ref == 'refs/heads/main'
+        run: docker push "$REGISTRY/$IMAGE_REPOSITORY:$IMAGE_TAG"
+
+  update-gitops:
+    name: Bump dev overlay and push
+    needs: build-test-scan
+    if: github.ref == 'refs/heads/main' && success()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # need history for the commit log diff
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install kustomize
+        run: |
+          curl -sS "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          sudo mv kustomize /usr/local/bin/
+
+      - name: Bump dev overlay
+        env:
+          IMAGE_TAG: ${{ needs.build-test-scan.outputs.image_tag }}
+        run: |
+          set -euo pipefail
+          git config user.email "${{ github.actor }}@users.noreply.github.com"
+          git config user.name  "${{ github.actor }}"
+
+          PREV_TAG=$(grep -A1 'name: team-alpha-backend-green' part2/overlays/dev/kustomization.yaml \
+                      | grep 'newTag:' | awk '{print $2}' | tr -d '[:space:]')
+          PREV_SHA="${PREV_TAG##*-}"
+          if [ -z "$PREV_TAG" ] || [ "$PREV_SHA" = "$PREV_TAG" ]; then
+            COMMIT_LOG=$(git log --oneline -1)
+          elif git rev-parse --verify "$PREV_SHA" >/dev/null 2>&1; then
+            COMMIT_LOG=$(git log --oneline "$PREV_SHA"..HEAD)
+            [ -z "$COMMIT_LOG" ] && COMMIT_LOG="No new commits since last deployment"
+          else
+            COMMIT_LOG="Previous deployment SHA not found in repo — $(git log --oneline -1)"
+          fi
+
+          cd part2/overlays/dev
+          kustomize edit set image \
+            team-alpha-backend-green="$REGISTRY/$IMAGE_REPOSITORY:$IMAGE_TAG"
+          cd -
+
+          git add part2/overlays/dev/kustomization.yaml
+
+          MSG=$(printf 'ci: bump dev team-alpha-backend-green to %s [skip ci]\n\nChanges in this deployment:\n%s\n\nTriggered by: %s' \
+                "$IMAGE_TAG" "$COMMIT_LOG" "${{ github.actor }}")
+          git commit -m "$MSG"
+          git push origin HEAD:main

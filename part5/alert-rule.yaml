@@ -1,0 +1,82 @@
+# Part 5.2 — Starter file: PrometheusRule
+#
+# Add at least two meaningful alert rules for the team-alpha-backend service.
+#
+# Guidelines:
+#   - Choose rules that are genuinely actionable in production
+#   - Avoid rules that will fire on transient noise (use appropriate `for` durations)
+#   - Every rule must include an `action` annotation with the first steps
+#     an on-call engineer should take when the alert fires
+#   - Use labels: severity (warning|critical), team, component
+#
+# The skeleton below contains one example rule structure to get you started.
+# Replace or extend it with your own rules.
+
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: team-alpha-backend-alerts
+  namespace: team-alpha
+  labels:
+    # This label must match what Mimir/Prometheus operator watches for rules
+    role: alert-rules
+spec:
+  groups:
+    - name: team-alpha-backend
+      interval: 30s
+      rules:
+
+        # Rule 1 — sustained 5xx rate above 5% for 5 minutes
+        # 5m window avoids single-spike noise
+        - alert: HighErrorRate
+          expr: |
+            rate(http_requests_total{namespace="team-alpha", status=~"5.."}[5m])
+              /
+            rate(http_requests_total{namespace="team-alpha"}[5m])
+              > 0.05
+          for: 5m
+          labels:
+            severity: warning
+            team: team-alpha
+            component: backend
+          annotations:
+            summary: "team-alpha-backend error rate {{ $value | humanizePercentage }} (threshold 5%)"
+            description: |
+              More than 5% of requests are returning 5xx for 5+ minutes.
+              Current rate: {{ $value | humanizePercentage }}.
+              Patient-facing workflows are degraded — investigate immediately.
+            action: |
+              # 1. Check pod logs for panics / unhandled errors
+              kubectl logs -n team-alpha -l app=team-alpha-backend --tail=100 --since=5m
+
+              # 2. Check recent deployments — did something go out?
+              kubectl rollout history deployment -n team-alpha
+
+              # 3. Open Grafana → team-alpha-backend dashboard → Error Rate panel
+              #    Filter by status_code to identify which endpoint is failing
+
+        # Rule 2 — p95 latency above 1 second for 10 minutes
+        # 10m window gives time for GC pauses / cold starts to settle
+        - alert: HighP95Latency
+          expr: |
+            histogram_quantile(
+              0.95,
+              rate(http_request_duration_seconds_bucket{namespace="team-alpha"}[5m])
+            ) > 1
+          for: 10m
+          labels:
+            severity: warning
+            team: team-alpha
+            component: backend
+          annotations:
+            summary: "team-alpha-backend p95 latency {{ $value | humanizeDuration }} (threshold 1s)"
+            description: |
+              95th-percentile response time has been above 1s for 10+ minutes.
+              Current p95: {{ $value | humanizeDuration }}.
+              May indicate database slowness, a downstream dependency, or resource exhaustion.
+            action: |
+              # 1. Check CPU/memory — is the pod resource-constrained?
+              kubectl top pod -n team-alpha -l app=team-alpha-backend
+
+              # 2. Check recent deployments — did something go out?
+              kubectl rollout history deployment -n team-alpha

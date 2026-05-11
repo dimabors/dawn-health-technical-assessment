@@ -1,0 +1,30 @@
+# Part 5.1 — Starter file: ServiceMonitor
+#
+# Complete the TODO sections to configure Prometheus scraping
+# for the team-alpha-backend service.
+#
+# The backend:
+#   - Is labelled:  app: team-alpha-backend
+#   - Exposes metrics at port 8080, path /metrics
+
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: team-alpha-backend
+  namespace: team-alpha
+  labels:
+    # Must match the serviceMonitorSelector on the Prometheus/Alloy CR —
+    # kube-prometheus-stack defaults to { release: <helm-release-name> }
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      app: team-alpha-backend
+  namespaceSelector:
+    matchNames:
+      - team-alpha
+  endpoints:
+    - port: http          # named port from service.yaml
+      path: /metrics
+      interval: 30s       # 30s is standard for a production service; go lower only if you need sub-minute alerting
+      scrapeTimeout: 10s

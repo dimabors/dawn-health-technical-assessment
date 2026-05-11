@@ -1,0 +1,61 @@
+# Part 3.1 — Starter file: ArgoCD Application
+#
+# Complete the sections marked with TODO.
+# This Application tells ArgoCD where to find the Kubernetes manifests
+# for team-alpha-backend and where to deploy them.
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: team-alpha-backend-dev
+  namespace: argocd
+spec:
+  project: default
+
+  source:
+    # TODO->Done: Set the repoURL to your forked repository
+    repoURL: https://github.com/dimabors/dawn-health-technical-assessment.git
+    # Track main — image promotions are commits on main, not separate Git tags.
+    # The CI pipeline writes new image tags into the dev overlay below.
+    targetRevision: main
+    # TODO->Done: Set the path to the directory containing your Kubernetes manifests
+    # (e.g. part1/ if you want to deploy what you built in Part 1, or a separate manifests/ folder)
+
+    # Point at the dev Kustomize overlay so ArgoCD renders only this environment's view.
+    # Promotion to staging/prod is a separate ArgoCD Application pointing at the
+    # corresponding overlay (part2/overlays/staging, part2/overlays/prod).
+    path: part2/overlays/dev
+
+  destination:
+    server: https://kubernetes.default.svc
+    # TODO->Done: Set the target namespace
+    namespace: team-alpha
+
+  syncPolicy:
+    automated:
+      # TODO->Done: Enable pruning so resources removed from Git are deleted from the cluster
+      prune: true
+      selfHeal: true
+      # NOTE — per-application sync delay:
+      # ArgoCD's Application spec does not have a native delay field for automated sync.
+      # The "brief delay" requirement is satisfied in two ways:
+      #   1. The ArgoCD server's default reconciliation loop polls Git every ~2-3 minutes
+      #      (timeout.reconciliation=120s + up to 60s jitter in argocd-cm — see
+      #      https://argo-cd.readthedocs.io/en/stable/operator-manual/argocd-cm-yaml/),
+      #      so changes are never applied instantly after a push.
+      #   2. For an explicit enforced delay, the platform team would configure
+      #      a webhook-triggered sync (disable polling, trigger via Azure DevOps webhook)
+      #      with a pipeline delay step before calling the ArgoCD API — giving a fixed
+      #      review window before the sync fires.
+    syncOptions:
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+      - CreateNamespace=true
+    # TODO->Done: Add a retry block — if a sync fails, ArgoCD should retry up to 3 times
+    #             with an increasing backoff starting at 5 seconds.
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 1m

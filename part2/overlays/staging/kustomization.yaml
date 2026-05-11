@@ -1,0 +1,19 @@
+# Part 2 — Staging overlay
+#
+# Staging tracks a vetted dev version. Promotion is a PR that copies the
+# resolved tag from overlays/dev/kustomization.yaml into this file.
+# That PR is the audit record of "this exact version is being promoted to staging".
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../..
+
+images:
+  - name: team-alpha-backend-blue
+    newName: dawnhealthacr.azurecr.io/team-alpha/backend
+    newTag: v1.0.0
+  - name: team-alpha-backend-green
+    newName: dawnhealthacr.azurecr.io/team-alpha/backend
+    newTag: v1.0.0

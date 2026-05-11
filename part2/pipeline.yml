@@ -1,0 +1,153 @@
+# Part 2 — Starter file: Azure DevOps CI Pipeline
+#
+# Complete the sections marked with TODO.
+# Do not change the overall stage/job structure — add steps within the existing jobs.
+
+trigger:
+  branches:
+    include:
+      - main
+      - feature/*
+
+variables:
+  imageRepository: 'team-alpha/backend'
+  containerRegistry: 'dawnhealthacr.azurecr.io'
+  # Tag with both build number and commit SHA for traceability
+  imageTag: '$(Build.BuildNumber)-$(Build.SourceVersion)'
+
+stages:
+
+  - stage: CI
+    displayName: 'Build, Test & Scan'
+    jobs:
+      - job: Build
+        displayName: 'Build and test'
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+###
+         # TODO->Done: Add a step to build the Docker image
+         # Tag it as $(containerRegistry)/$(imageRepository):$(imageTag)
+          - task: Docker@2
+            displayName: 'Build Docker image'
+            inputs:
+              command: build
+              dockerfile: 'part4/Dockerfile.hardened'
+              buildContext: 'part4'
+              repository: '$(containerRegistry)/$(imageRepository)'
+              tags: '$(imageTag)'
+###
+          # TODO->Done: Add a step to run unit tests
+          # Tests run inside the built container to match the production environment exactly
+          - script: |
+              docker run --rm \
+                $(containerRegistry)/$(imageRepository):$(imageTag) \
+                npm test
+            displayName: 'Run unit tests inside container'
+###
+          # TODO->Done: Add an image vulnerability scan step
+          # Use a tool of your choice (e.g. Trivy, Grype, or Azure Defender for Containers)
+          # The job must FAIL if critical vulnerabilities are found
+
+          # Using Trivy via Docker
+          # --exit-code 3 causes the job to FAIL if any CRITICAL vulnerabilities are found
+          - script: |
+              echo "Pulling aquasec/trivy:latest — alpine-based image "
+              docker run --rm \
+                -v /var/run/docker.sock:/var/run/docker.sock \
+                aquasec/trivy:latest image \
+                --exit-code 3 \
+                --severity CRITICAL \
+                --no-progress \
+                $(containerRegistry)/$(imageRepository):$(imageTag)
+              EXIT_CODE=$?
+              if [ $EXIT_CODE -eq 3 ]; then
+                echo "##[error]CRITICAL vulnerabilities found — failing the build"
+                exit 3
+              elif [ $EXIT_CODE -eq 1 ]; then
+                echo "##[error]Trivy scan failed to complete (network/image error)"
+                exit 1
+              elif [ $EXIT_CODE -ne 0 ]; then
+                echo "##[error]Trivy exited with unexpected code $EXIT_CODE — failing the build"
+                exit 1
+              fi
+            displayName: 'Scan image for critical vulnerabilities'
+###
+          # TODO->Done: Add a step to push the image to the container registry
+          # This step should only run on the main branch
+          # Hint: use a condition expression
+          - task: Docker@2
+            displayName: 'Push Docker image to ACR'
+            condition: and(succeeded(), eq(variables['Build.SourceBranchName'], 'main'))
+            inputs:
+              command: push
+              containerRegistry: 'dawnhealthacr'
+              repository: '$(imageRepository)'
+              tags: '$(imageTag)'
+
+  - stage: UpdateGitOps
+    displayName: 'Update GitOps repository'
+    dependsOn: CI
+    # TODO->Done: Add a condition so this stage only runs on the main branch
+    # Additionally added teh succeed condition to ensure this stage only runs if the CI stage succeeded. 
+    condition: and(succeeded(), eq(variables['Build.SourceBranchName'], 'main'))
+    jobs:
+      - job: UpdateImageTag
+        displayName: 'Bump image tag in GitOps repo'
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          # TODO->Done: Add steps to:
+          #   1. Clone the GitOps repository (this repo, or a separate one)
+          #   2. Update the image tag in part3/argocd-application.yaml (or a Kustomize/Helm values file)
+          #      to $(imageTag)
+          #   3. Commit and push the change with a meaningful message
+          #
+          # ArgoCD will detect the Git change and sync the dev environment automatically.
+          # See part3/argocd-application.yaml for the Application definition.
+          - checkout: self
+            persistCredentials: true
+            displayName: 'Clone GitOps repository'
+
+          - script: |
+              set -euo pipefail
+
+              git config user.email "$(Build.RequestedForEmail)"
+              git config user.name "$(Build.RequestedFor)"
+
+              PREV_TAG=$(grep -A1 'name: team-alpha-backend-green' part2/overlays/dev/kustomization.yaml \
+                          | grep 'newTag:' | awk '{print $2}' | tr -d '[:space:]')
+              PREV_DEPLOYED_SHA="${PREV_TAG##*-}"
+
+              if [ -z "$PREV_TAG" ] || [ "$PREV_DEPLOYED_SHA" = "$PREV_TAG" ]; then
+                # Initial state (e.g. newTag: v1.1.0) — no SHA encoded yet
+                COMMIT_LOG=$(git log --oneline -1)
+              elif git rev-parse --verify "$PREV_DEPLOYED_SHA" >/dev/null 2>&1; then
+                COMMIT_LOG=$(git log --oneline "$PREV_DEPLOYED_SHA"..HEAD)
+                [ -z "$COMMIT_LOG" ] && COMMIT_LOG="No new commits since last deployment (pipeline re-run)"
+              else
+                COMMIT_LOG="Previous deployment SHA not found in repo — $(git log --oneline -1)"
+              fi
+
+              # --- Update the dev overlay ---
+              # `kustomize edit set image` is the idiomatic, idempotent way to bump a tag.
+              # It rewrites only the `newTag` line for the matching image alias — no sed.
+              # Install kustomize on the agent (ubuntu-latest doesn't ship it by default).
+              if ! command -v kustomize >/dev/null 2>&1; then
+                curl -sS "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+                sudo mv kustomize /usr/local/bin/
+              fi
+
+              cd part2/overlays/dev
+              kustomize edit set image \
+                team-alpha-backend-green=$(containerRegistry)/$(imageRepository):$(imageTag)
+              cd -
+
+              git add part2/overlays/dev/kustomization.yaml
+
+              # --- Commit and push ---
+              MSG=$(printf 'ci: bump dev team-alpha-backend-green to %s [skip ci]\n\nChanges in this deployment:\n%s\n\nTriggered by: %s' \
+                "$(imageTag)" "$COMMIT_LOG" "$(Build.RequestedFor)")
+              git commit -m "$MSG"
+              git push origin HEAD:main
+            displayName: 'Bump dev image tag in Kustomize overlay and push'
