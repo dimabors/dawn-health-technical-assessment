@@ -88,6 +88,7 @@ jobs:
   deploy:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'prod' || github.ref_name == 'context/devops' && 'staging' || 'dev' }}
     steps:
       - uses: actions/checkout@v4
 
