@@ -27,11 +27,14 @@ foreach ($p in 'Microsoft.ContainerRegistry','Microsoft.ContainerService','Micro
 }
 
 # 4. Bootstrap the GitHub Actions deployer UAMI + federated credentials + RG roles.
+#    NOTE: branch defaults to 'main' in the bicep. Pass all three branches here so
+#    all FICs are created in one deployment (main + context/devops-dev + context/devops).
 az deployment group create `
   --resource-group rg-team-alpha `
   --template-file deploy/bicep/gha-deployer.bicep `
   --parameters repo='dimabors/dawn-health-technical-assessment' `
-               branch='context/devops-dev'
+               branch='main' `
+               extraBranches='["context/devops-dev","context/devops"]'
 
 # 5. Read the values you need to paste into GitHub.
 az deployment group show `
