@@ -21,6 +21,9 @@ spec:
       serviceAccountName: team-alpha-workload-sa
       containers:
         - name: backend
+          # Kustomize alias — overlays/*/kustomization.yaml maps this to
+          # ecapacr.azurecr.io/team-alpha/backend:<tag>. If you ever see
+          # "set-by-overlay" in a rendered manifest, an overlay missed the mapping.
           image: team-alpha-backend-blue:set-by-overlay
           ports:
             - containerPort: 8080

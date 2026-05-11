@@ -21,6 +21,10 @@ spec:
       serviceAccountName: team-alpha-workload-sa
       containers:
         - name: backend
+          # Kustomize alias — CI bumps this slot on every main build:
+          #   kustomize edit set image team-alpha-backend-green=...:<tag>
+          # "set-by-overlay" is intentional; seeing it in a rendered manifest
+          # means the overlay didn't map the alias.
           image: team-alpha-backend-green:set-by-overlay
           ports:
             - containerPort: 8080
