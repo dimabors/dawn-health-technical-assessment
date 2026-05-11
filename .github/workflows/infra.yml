@@ -105,6 +105,17 @@ jobs:
             --parameters repo='${{ vars.GH_REPO }}' \
                          branch='${{ github.ref_name }}'
 
+      - name: Wait for AKS to reach a terminal state
+        run: |
+          STATE=$(az aks show -g "${{ vars.AZURE_RG }}" -n "${{ vars.AKS_CLUSTER }}" \
+                    --query provisioningState -o tsv 2>/dev/null || echo "NotFound")
+          echo "AKS provisioning state: $STATE"
+          if [[ "$STATE" == "Updating" || "$STATE" == "Creating" ]]; then
+            echo "Cluster is busy — waiting up to 10 min for it to finish..."
+            az aks wait -g "${{ vars.AZURE_RG }}" -n "${{ vars.AKS_CLUSTER }}" \
+              --updated --interval 30 --timeout 600
+          fi
+
       - name: Deploy platform (ACR + AKS + AcrPull)
         run: |
           az deployment group create \
