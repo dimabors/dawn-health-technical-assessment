@@ -51,6 +51,10 @@ resource deployer 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' 
 var ghIssuer = 'https://token.actions.githubusercontent.com'
 var audience = [ 'api://AzureADTokenExchange' ]
 
+// Exclude the primary branch from the extra-branch list so we never generate
+// duplicate FIC names when the workflow runs from one of the extra branches.
+var filteredExtraBranches = filter(extraBranches, b => b != branch)
+
 // Primary branch trust (main → production CI)
 resource fcBranch 'Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentityCredentials@2023-01-31' = {
   parent: deployer
@@ -64,7 +68,7 @@ resource fcBranch 'Microsoft.ManagedIdentity/userAssignedIdentities/federatedIde
 
 // Extra branch trust (context/devops-dev = dev, context/devops = staging)
 @batchSize(1)
-resource fcExtraBranches 'Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentityCredentials@2023-01-31' = [for b in extraBranches: {
+resource fcExtraBranches 'Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentityCredentials@2023-01-31' = [for b in filteredExtraBranches: {
   parent: deployer
   name: 'gh-branch-${replace(b, '/', '-')}'
   properties: {
