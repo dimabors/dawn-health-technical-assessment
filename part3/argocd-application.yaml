@@ -36,6 +36,17 @@ spec:
       # TODO->Done: Enable pruning so resources removed from Git are deleted from the cluster
       prune: true
       selfHeal: true
+      # NOTE — per-application sync delay:
+      # ArgoCD's Application spec does not have a native delay field for automated sync.
+      # The "brief delay" requirement is satisfied in two ways:
+      #   1. The ArgoCD server's default reconciliation loop polls Git every ~2-3 minutes
+      #      (timeout.reconciliation=120s + up to 60s jitter in argocd-cm — see
+      #      https://argo-cd.readthedocs.io/en/stable/operator-manual/argocd-cm-yaml/),
+      #      so changes are never applied instantly after a push.
+      #   2. For an explicit enforced delay, the platform team would configure
+      #      a webhook-triggered sync (disable polling, trigger via Azure DevOps webhook)
+      #      with a pipeline delay step before calling the ArgoCD API — giving a fixed
+      #      review window before the sync fires.
     syncOptions:
       - PrunePropagationPolicy=foreground
       - PruneLast=true

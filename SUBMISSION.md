@@ -82,15 +82,26 @@ To make this even stricter in production would pin by digest (`image@sha256:...`
 
 > What does the Azure DevOps pipeline do to trigger a deployment to dev?
 
-_Your answer here._
-
+On a successful merge to `main`, the `UpdateGitOps` stage runs `kustomize edit set image` to update the `newTag` for [team-alpha-backend-green](part2/overlays/dev/kustomization.yaml#L13) in [part2/overlays/dev/kustomization.yaml](part2/overlays/dev/kustomization.yaml), then commits and pushes that change back to the repo. 
+ArgoCD polls the repo on its sync interval and detects the new commit. Because `automated.prune` and `selfHeal` are enabled, it reconciles the cluster state to match Git — pulling the new image and rolling out the updated Deployment — without any manual intervention.
+[part1/workload-identity.bicep](part1/workload-identity.bicep)
 > What triggers promotion to staging, and then to production?
 
-_Your answer here._
+Promotion is a deliberate, human-reviewed Git operation — not an automatic pipeline step. A team member (or a promotion script) opens a PR that copies the verified image tag from `overlays/dev/kustomization.yaml` into [overlays/staging/kustomization.yaml](overlays/staging/kustomization.yaml). 
+Merging that PR is the promotion event: ArgoCD's staging Application detects the commit and syncs. 
+Production follows the same pattern — a PR from staging into `overlays/prod/kustomization.yaml`, but gated by the Azure DevOps Environment approval that requires a named reviewer to sign off before the PR can be merged.
 
 > What is the benefit of this model over having the pipeline kubectl apply directly?
 
-_Your answer here._
+Four benefits by using this model: 
+
+(1) **Auditability** — every deployment is a Git commit in a version control environment with an author, timestamp, and diff, which satisfies SaMD change-control requirements without extra tooling. 
+
+(2) **Drift detection** — ArgoCD continuously compares cluster state to Git and alerts (or self-heals) if they diverge, meaning an ad-hoc `kubectl` change is immediately visible and reversible. 
+
+(3) **Rollback is a revert** — to undo a bad release someone can revert the commit; ArgoCD syncs the old state back, so that no pipeline re-run is needed. That rollback is also auditable with a clear record of who did it and why (in the commit message). Moreover, the revert back can be done automatically by ArgoCD if it's set up a sync failure hook to trigger a rollback on failed health checks after a deploy — giving a near-instant remediation without waiting for a human to notice and react, and maybe it would be a acceptable to realease on Friday :) (NO). Though the automatic rollback pattern should be used very carefully in production as it can cause instability.  
+
+(4) **Separation of concerns** — CI proves the code is safe; CD is a separate, auditable promotion step. With `kubectl apply` in the pipeline will lose all of these: no drift detection, no approval record, rollback requires another pipeline run.
 
 ---
 
