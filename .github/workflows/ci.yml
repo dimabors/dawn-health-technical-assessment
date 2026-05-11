@@ -16,6 +16,7 @@ name: ci
 on:
   push:
     branches: [main, "context/devops-dev", "context/devops", "feature/**"]
+    tags: ["v*.*.*"]       # triggers a versioned release build
   pull_request:
     branches: [main, "context/devops-dev", "context/devops"]
   workflow_dispatch:
@@ -28,7 +29,10 @@ permissions:
 env:
   IMAGE_REPOSITORY: team-alpha/backend
   REGISTRY: ${{ vars.ACR_NAME }}.azurecr.io
-  IMAGE_TAG: ${{ github.run_number }}-${{ github.sha }}
+  # When triggered by a semver tag (v1.2.3) use the tag as the image tag so
+  # APP_VERSION inside the container matches. Otherwise fall back to the
+  # run-number + SHA for traceability on branch builds.
+  IMAGE_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('{0}-{1}', github.run_number, github.sha) }}
 
 jobs:
   build-test-scan:
@@ -56,6 +60,7 @@ jobs:
         run: |
           docker build \
             -f part4/Dockerfile.hardened \
+            --build-arg APP_VERSION="$IMAGE_TAG" \
             -t "$REGISTRY/$IMAGE_REPOSITORY:$IMAGE_TAG" \
             part4
 
@@ -117,11 +122,14 @@ jobs:
           git config user.email "${{ github.actor }}@users.noreply.github.com"
           git config user.name  "${{ github.actor }}"
 
-          # Each branch owns one overlay: devops-dev→dev, devops→staging, main→prod.
+          # Each branch/tag owns one overlay.
+          # Tags always push the gitops commit back to context/devops-dev
+          # (they represent a dev→prod promotion flow starting in dev).
           case "${{ github.ref_name }}" in
-            main)           OVERLAY=prod ;;
-            context/devops) OVERLAY=staging ;;
-            *)              OVERLAY=dev ;;
+            main)           OVERLAY=prod;    PUSH_BRANCH=main ;;
+            context/devops) OVERLAY=staging; PUSH_BRANCH=context/devops ;;
+            v*.*.*)         OVERLAY=dev;     PUSH_BRANCH=context/devops-dev ;;
+            *)              OVERLAY=dev;     PUSH_BRANCH="${{ github.ref_name }}" ;;
           esac
 
           cd part2/overlays/$OVERLAY
@@ -131,5 +139,5 @@ jobs:
 
           git add part2/overlays/$OVERLAY/kustomization.yaml
           git commit -m "ci: bump $OVERLAY team-alpha-backend-green to $IMAGE_TAG [skip ci]"
-          # Push back to the same branch that triggered this run.
-          git push origin HEAD:${{ github.ref_name }}
+          # Push back to the branch (not the tag ref, which is read-only).
+          git push origin HEAD:$PUSH_BRANCH
