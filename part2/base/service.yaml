@@ -6,7 +6,7 @@ metadata:
   labels:
     app: team-alpha-backend
 spec:
-  type: ClusterIP
+  type: LoadBalancer
   selector:
     app: team-alpha-backend
     slot: blue

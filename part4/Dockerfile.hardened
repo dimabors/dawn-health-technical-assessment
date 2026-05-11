@@ -49,10 +49,15 @@ FROM node:24.15.0-alpine AS runtime
 
 WORKDIR /app
 
+# APP_VERSION is injected at build time via --build-arg so the image always
+# knows its own version without any manual YAML updates.
+ARG APP_VERSION=dev
+
 # No secrets here. DB_PASSWORD and friends come in via Workload Identity / K8s Secrets.
 ENV NODE_ENV=production \
     PORT=8080 \
-    NPM_CONFIG_LOGLEVEL=warn
+    NPM_CONFIG_LOGLEVEL=warn \
+    APP_VERSION=$APP_VERSION
 
 # --chown avoids a separate RUN chown layer.
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
