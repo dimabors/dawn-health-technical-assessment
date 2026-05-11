@@ -32,7 +32,7 @@ stages:
             displayName: 'Build Docker image'
             inputs:
               command: build
-              dockerfile: 'part4/Dockerfile'
+              dockerfile: 'part4/Dockerfile.hardened'
               buildContext: 'part4'
               repository: '$(containerRegistry)/$(imageRepository)'
               tags: '$(imageTag)'

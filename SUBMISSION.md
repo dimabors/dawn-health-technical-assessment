@@ -24,7 +24,18 @@ _Optional notes here._
 >
 > What annotation must be present on the ServiceAccount for the Workload Identity binding to work, and why?
 
-_Your answer here._
+The ServiceAccount must carry:
+
+```yaml
+annotations:
+  azure.workload.identity/client-id: "<uami-client-id>"
+```
+
+The AKS Workload Identity mutating webhook reads this annotation to know which Azure Managed Identity the pod should assume. Without it the webhook skips the pod entirely — it does not inject the AZURE_CLIENT_ID environment variable nor the projected OIDC token volume mount. The pod starts but every Azure SDK call fails at authentication because there is nothing to exchange.
+
+Optionally, `azure.workload.identity/tenant-id` can be added if the identity lives in a different tenant than the cluster; it defaults to the cluster's tenant if omitted.
+
+The pod spec also needs the label azure.workload.identity/use: `"true"` to opt into the mutation — the webhook ignores pods without it, which is the safe default so other workloads are unaffected.
 
 ---
 
@@ -33,6 +44,7 @@ _Your answer here._
 ### 2.1 Completed Pipeline
 
 > No written answer needed — your completed `part2/pipeline.yml` is the answer.
+Done
 
 ---
 
@@ -40,15 +52,21 @@ _Your answer here._
 
 > How would you structure the pipeline differently for feature branches vs main?
 
-_Your answer here._
+Feature branches run the full CI stage — build, test, and scan — so every PR gets a quality gate. The push and GitOps update stages are skipped entirely (enforced by the `condition: eq(variables['Build.SourceBranchName'], 'main')` on both the push step and the `UpdateGitOps` stage). This means a feature branch never writes to the registry or triggers a deployment; it only proves the code is safe to merge. On `main`, after the push succeeds, the GitOps update runs automatically and ArgoCD picks up the change within its sync interval.
 
 > Where would you add a manual approval gate, and why only there?
 
-_Your answer here._
+Between staging and production, using an Azure DevOps **Environment approval** on the `prod` environment resource. 
+Not before dev — dev should be fully automated to keep the feedback loop fast. 
+Not before staging — staging validation is also automated (smoke tests, integration tests), but it can be also manual if needed as it can ruin the manual test if someone is doing it on a specific release candidate. 
+The gate sits only before prod because that is the only environment where a bad deploy has direct patient impact and cannot be quietly rolled back without communication. 
+The approval also creates an audit record required under SaMD change control: a named person explicitly approved the release at a specific time.
 
 > How do you ensure the same image digest is deployed through dev → staging → prod rather than rebuilt?
 
-_Your answer here._
+The image is built and pushed **once** in the CI stage, tagged with `$(Build.BuildNumber)-$(Build.SourceVersion)`. That tag encodes the exact commit SHA, so it uniquely identifies one build. 
+Promotion to staging and production is done by copying that same tag string into the staging/prod Kustomize overlay and committing it — no rebuild, no new `docker build`. ArgoCD then pulls the exact same layer digest from ACR that dev already ran. 
+To make this even stricter in production would pin by digest (`image@sha256:...`) rather than tag, since a tag can theoretically be overwritten; a digest cannot that will bring extra transparency to the audit log.
 
 ---
 
