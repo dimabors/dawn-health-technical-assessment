@@ -70,13 +70,13 @@ jobs:
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
             aquasec/trivy:latest image \
-            --exit-code 2 \
+            --exit-code 3 \
             --severity CRITICAL \
             --no-progress \
             "$REGISTRY/$IMAGE_REPOSITORY:$IMAGE_TAG"
           ec=$?
-          if [ $ec -eq 2 ]; then
-            echo "::error::CRITICAL vulnerabilities found"; exit 2
+          if [ $ec -eq 3 ]; then
+            echo "::error::CRITICAL vulnerabilities found"; exit 3
           elif [ $ec -ne 0 ]; then
             echo "::error::Trivy failed with exit $ec"; exit 1
           fi
