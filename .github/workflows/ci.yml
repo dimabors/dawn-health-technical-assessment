@@ -40,13 +40,41 @@ jobs:
   build-test-scan:
     runs-on: ubuntu-latest
     outputs:
-      image_tag: ${{ env.IMAGE_TAG }}
+      image_tag: ${{ steps.set-tag.outputs.image_tag }}
+      is_promotion: ${{ steps.set-tag.outputs.is_promotion }}
     steps:
       - uses: actions/checkout@v4
 
+      # ---- Decide: build a new image OR promote an existing one ---------------
+      # Promotion branches (context/devops → staging, main → prod) reuse the
+      # immutable tag already validated in the previous environment — no rebuild.
+      - name: Resolve image tag
+        id: set-tag
+        run: |
+          REF="${{ github.ref_name }}"
+          if [[ "$REF" == "context/devops" ]]; then
+            # Staging promotion: read the green tag that is live in dev
+            TAG=$(grep -A2 'name: team-alpha-backend-green' part2/overlays/dev/kustomization.yaml \
+                  | grep 'newTag:' | awk '{print $2}')
+            echo "Promoting dev->staging: $TAG"
+            echo "image_tag=$TAG"    >> "$GITHUB_OUTPUT"
+            echo "is_promotion=true" >> "$GITHUB_OUTPUT"
+          elif [[ "$REF" == "main" ]]; then
+            # Prod promotion: read the green tag that is live in staging
+            TAG=$(grep -A2 'name: team-alpha-backend-green' part2/overlays/staging/kustomization.yaml \
+                  | grep 'newTag:' | awk '{print $2}')
+            echo "Promoting staging->prod: $TAG"
+            echo "image_tag=$TAG"    >> "$GITHUB_OUTPUT"
+            echo "is_promotion=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "image_tag=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+            echo "is_promotion=false"   >> "$GITHUB_OUTPUT"
+          fi
+
       # ---- Auth to Azure / ACR via OIDC (no stored passwords) -----------------
+      # Skipped for promotion branches — no image to push.
       - name: Azure login (OIDC)
-        if: "github.event_name != 'pull_request' && !startsWith(github.ref, 'refs/heads/feature/')"
+        if: "steps.set-tag.outputs.is_promotion == 'false' && github.event_name != 'pull_request' && !startsWith(github.ref, 'refs/heads/feature/')"
         uses: azure/login@v2
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
@@ -54,11 +82,12 @@ jobs:
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
       - name: ACR login
-        if: "github.event_name != 'pull_request' && !startsWith(github.ref, 'refs/heads/feature/')"
+        if: "steps.set-tag.outputs.is_promotion == 'false' && github.event_name != 'pull_request' && !startsWith(github.ref, 'refs/heads/feature/')"
         run: az acr login --name "${{ vars.ACR_NAME }}"
 
-      # ---- Build --------------------------------------------------------------
+      # ---- Build (skipped for promotion branches) -----------------------------
       - name: Build image
+        if: "steps.set-tag.outputs.is_promotion == 'false'"
         run: |
           docker build \
             -f part4/Dockerfile.hardened \
@@ -66,16 +95,18 @@ jobs:
             -t "$REGISTRY/$IMAGE_REPOSITORY:$IMAGE_TAG" \
             part4
 
-      # ---- Test inside the container (matches prod environment exactly) -------
+      # ---- Test inside the container (skipped for promotion branches) ---------
       - name: Run unit tests in container
+        if: "steps.set-tag.outputs.is_promotion == 'false'"
         run: |
           docker run --rm \
             "$REGISTRY/$IMAGE_REPOSITORY:$IMAGE_TAG" \
             npm test
 
-      # ---- Vulnerability scan -------------------------------------------------
+      # ---- Vulnerability scan (skipped for promotion branches) ----------------
       # Same logic as pipeline.yml: exit 2 = criticals found, exit 1 = scanner error.
       - name: Trivy scan (CRITICAL only)
+        if: "steps.set-tag.outputs.is_promotion == 'false'"
         run: |
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
@@ -91,9 +122,9 @@ jobs:
             echo "::error::Trivy failed with exit $ec"; exit 1
           fi
 
-      # ---- Push (deploy branches only, not feature/** or PRs) ----------------------
+      # ---- Push (skipped for promotion branches and PRs/feature branches) -----
       - name: Push image
-        if: "github.event_name != 'pull_request' && !startsWith(github.ref, 'refs/heads/feature/')"
+        if: "steps.set-tag.outputs.is_promotion == 'false' && github.event_name != 'pull_request' && !startsWith(github.ref, 'refs/heads/feature/')"
         run: docker push "$REGISTRY/$IMAGE_REPOSITORY:$IMAGE_TAG"
 
   update-gitops:
