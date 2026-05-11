@@ -1,90 +1,101 @@
-// Part 1.2 — Workload Identity for team-alpha (parameterised per environment)
+// Part 1.2 — Workload Identity for team-alpha (dev environment)
 //
-// Provisions, for ONE environment (dev / staging / prod):
-//   1. A User-Assigned Managed Identity (UAMI) — the AAD identity the pod assumes.
-//   2. A federated credential trusting the K8s ServiceAccount
-//      `team-alpha-workload-sa` in namespace `team-alpha-<env>` on the AKS
-//      cluster. No client secret is ever stored.
-//   3. A "Key Vault Secrets User" role assignment scoped to the env-specific
-//      Key Vault, so the workload can READ secrets but not manage them.
+// Provisions the Azure-side of the Workload Identity binding so that
+// team-alpha pods can authenticate to Key Vault without stored credentials.
 //
-// REQUIRED ServiceAccount annotation (apply in each env's namespace):
+// Three resources are required:
+//   1. User-Assigned Managed Identity (UAMI)   — the Azure identity the pod will assume
+//   2. Federated Credential                    — binds the UAMI to the K8s ServiceAccount
+//   3. Key Vault role assignment               — grants the UAMI read access to KV secrets
 //
-//   metadata:
-//     annotations:
-//       azure.workload.identity/client-id: <uamiClientId output of this deploy>
-//     # The Pod template must also carry:  azure.workload.identity/use: "true"
+// Companion Kubernetes resource: part1/namespace.yaml (ServiceAccount + annotation below).
 //
-// The annotation tells the Azure Workload Identity webhook which UAMI to bind
-// the projected SA token to. Without it the webhook won't inject AZURE_CLIENT_ID
-// or the token volume, and AAD token exchange fails. The federated credential's
-// subject (`system:serviceaccount:<ns>:<sa>`) must match on both sides exactly.
+// REQUIRED ServiceAccount ANNOTATION
+// ===================================
+// For the Workload Identity webhook to exchange the projected OIDC token for an
+// Azure access token, the ServiceAccount MUST carry:
+//
+//   azure.workload.identity/client-id: <uamiClientId output below>
+//
+// Without this annotation the mutating webhook does not inject the
+// AZURE_CLIENT_ID env var and the OIDC token mount — the pod starts but
+// every Azure SDK call fails with an authentication error.
+// Optionally also annotate with:
+//   azure.workload.identity/tenant-id: <tenantId>   # defaults to cluster tenant if omitted
+//
+// The pod itself must also carry the label:
+//   azure.workload.identity/use: "true"
 
-@description('Location for all resources.')
+targetScope = 'resourceGroup'
+
+@description('Azure region — defaults to the resource group region.')
 param location string = resourceGroup().location
 
-@description('Environment suffix: dev | staging | prod.')
-@allowed([
-  'dev'
-  'staging'
-  'prod'
-])
-param environment string
+//make sure we get the OIDC issuer URL from the existing AKS cluster instead of hardcoding it. Only Trust AKS clusters.
+@description('OIDC issuer URL of the shared AKS cluster. Retrieve with: az aks show -n <cluster> -g <rg> --query oidcIssuerProfile.issuerURL -o tsv')
+param oidcIssuerUrl string
 
-@description('Name of the existing AKS cluster (used to read its OIDC issuer URL).')
-param aksClusterName string
+@description('Name of the existing Key Vault the team needs to read secrets from.')
+param keyVaultName string = 'kv-team-alpha-dev'
 
-@description('Resource group of the AKS cluster (defaults to current RG).')
-param aksResourceGroup string = resourceGroup().name
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
 
-@description('Override the Key Vault name. Defaults to kv-team-alpha-<env>.')
-param keyVaultName string = 'kv-team-alpha-${environment}'
+// Kubernetes coordinates taht starts from part1/namespace.yaml
+var k8sNamespace      = 'team-alpha'
+var k8sServiceAccount = 'team-alpha-workload-sa'
 
-@description('Override the K8s namespace. Defaults to team-alpha-<env>.')
-param namespaceName string = 'team-alpha-${environment}'
+// Built-in role: Key Vault Secrets User (read secret values, no management plane access)
+var kvSecretsUserRoleId = '4633458b-17de-408a-b874-0445c86b69e6'
 
-@description('K8s ServiceAccount name the workload runs as.')
-param serviceAccountName string = 'team-alpha-workload-sa'
+// ---------------------------------------------------------------------------
+// 1. User-Assigned Managed Identity
+// ---------------------------------------------------------------------------
 
-// Existing AKS cluster — workload identity requires --enable-oidc-issuer
-// and --enable-workload-identity to have been set on the cluster.
-resource aks 'Microsoft.ContainerService/managedClusters@2024-05-01' existing = {
-  name: aksClusterName
-  scope: resourceGroup(aksResourceGroup)
-}
-
-// 1. UAMI — one per environment so we can scope KV access independently.
 resource uami 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
-  name: 'id-team-alpha-workload-${environment}'
+  name: 'id-team-alpha-workload-dev'
   location: location
 }
 
-// 2. Federated credential. Subject MUST match `system:serviceaccount:<ns>:<sa>`.
-//    Audience MUST be `api://AzureADTokenExchange`.
-resource fedCred 'Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentityCredentials@2023-01-31' = {
+// ---------------------------------------------------------------------------
+// 2. Federated Identity Credential
+//
+// Tells Azure AD to trust a token that claims:
+//   iss = oidcIssuerUrl          (this AKS cluster)
+//   sub = system:serviceaccount:<namespace>:<serviceAccount>
+//
+// Any other token is rejected — no other namespace or SA can impersonate this identity.
+// ---------------------------------------------------------------------------
+
+resource federatedCredential 'Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentityCredentials@2023-01-31' = {
   parent: uami
-  name: 'fc-team-alpha-backend-${environment}'
+  name: 'fc-team-alpha-backend-dev'
   properties: {
-    issuer: aks.properties.oidcIssuerProfile.issuerURL
-    subject: 'system:serviceaccount:${namespaceName}:${serviceAccountName}'
+    issuer: oidcIssuerUrl
+    subject: 'system:serviceaccount:${k8sNamespace}:${k8sServiceAccount}'
+    // 'api://AzureADTokenExchange' is the fixed audience the AKS OIDC webhook uses.
     audiences: [
       'api://AzureADTokenExchange'
     ]
   }
 }
 
-// 3. Key Vault Secrets User on the env-scoped vault — read-only at the data plane.
+// ---------------------------------------------------------------------------
+// 3. Key Vault role assignment — Key Vault Secrets User on kv-team-alpha-dev
+//
+// Scoped to the specific vault (not the whole resource group) to follow
+// least-privilege: the UAMI can read secrets only from this vault.
+// ---------------------------------------------------------------------------
+
 resource kv 'Microsoft.KeyVault/vaults@2023-07-01' existing = {
   name: keyVaultName
 }
 
-// Built-in role definition ID for "Key Vault Secrets User".
-var kvSecretsUserRoleId = '4633458b-17de-408a-b874-0445c86b69e6'
-
-resource kvRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  scope: kv
-  // GUID derived from scope+principal+role makes the deployment idempotent.
+resource kvSecretsUserRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  // Deterministic GUID — safe to re-run (idempotent).
   name: guid(kv.id, uami.id, kvSecretsUserRoleId)
+  scope: kv
   properties: {
     principalId: uami.properties.principalId
     principalType: 'ServicePrincipal'
@@ -95,9 +106,12 @@ resource kvRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' =
   }
 }
 
+// ---------------------------------------------------------------------------
+// Outputs — feed these into the ServiceAccount annotation and pod identity spec
+// ---------------------------------------------------------------------------
+
+@description('Client ID to paste into the azure.workload.identity/client-id annotation on the ServiceAccount.')
 output uamiClientId string = uami.properties.clientId
-output uamiPrincipalId string = uami.properties.principalId
+
+@description('Full resource ID of the UAMI (useful for pod identity spec).')
 output uamiResourceId string = uami.id
-output aksOidcIssuerUrl string = aks.properties.oidcIssuerProfile.issuerURL
-output keyVaultId string = kv.id
-output namespaceName string = namespaceName
