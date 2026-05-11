@@ -13,8 +13,8 @@ resources:
 # `team-alpha-backend-green` newTag on every successful build on main.
 images:
 - name: team-alpha-backend-blue
-  newName: dawnhealthacr.azurecr.io/team-alpha/backend
-  newTag: v1.0.0
+  newName: ecapacr.azurecr.io/team-alpha/backend
+  newTag: v1.1.0  # placeholder; CI bumps this on v*.*.*-preview tag
 - name: team-alpha-backend-green
   newName: ecapacr.azurecr.io/team-alpha/backend
   newTag: 15-487f334553839c6cbddd070745cf3af14612aaf0

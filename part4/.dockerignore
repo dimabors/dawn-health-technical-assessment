@@ -23,9 +23,7 @@ yarn-error.log
 *.crt
 secrets/
 
-# Tests are needed in the build stage for `npm test` to run inside the container.
-# They are not present in the runtime image (only src/ is copied across).
-# __tests__
+
 coverage
 *.md
 Dockerfile*

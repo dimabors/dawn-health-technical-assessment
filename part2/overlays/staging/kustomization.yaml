@@ -14,8 +14,8 @@ resources:
 
 images:
 - name: team-alpha-backend-blue
-  newName: dawnhealthacr.azurecr.io/team-alpha/backend
-  newTag: v1.0.0
+  newName: ecapacr.azurecr.io/team-alpha/backend
+  newTag: v1.1.0  # placeholder; CI bumps this on v*.*.*-preview tag
 - name: team-alpha-backend-green
   newName: ecapacr.azurecr.io/team-alpha/backend
   newTag: 16-46301437082c787f1f8e003c71b53505ff6fbab6
