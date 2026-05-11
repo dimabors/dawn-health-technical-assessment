@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: team-alpha-backend-blue
+  namespace: team-alpha
+  labels:
+    app: team-alpha-backend
+    slot: blue
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: team-alpha-backend
+      slot: blue
+  template:
+    metadata:
+      labels:
+        app: team-alpha-backend
+        slot: blue
+    spec:
+      serviceAccountName: team-alpha-workload-sa
+      containers:
+        - name: backend
+          image: team-alpha-backend-blue:set-by-overlay
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi

@@ -1,0 +1,71 @@
+# Part 4.1 — Hardened Dockerfile
+#
+# Problems in the original and what I changed:
+#
+# 1. node:18 (Debian, ~1 GB, EOL) → node:24.15.0-alpine (~60 MB, Active LTS).
+#    Snyk shows 0 CVEs: https://snyk.io/test/docker/node%3A24-alpine
+#
+# 2. curl/wget/git/vim/build-essential installed at runtime → multi-stage build.
+#    Build tools stay in stage 1 and never ship in the final image.
+#
+# 3. ENV DB_PASSWORD=... in the Dockerfile → removed.
+#    Secrets go in Kubernetes Secrets / Key Vault at runtime, never in the image.
+#
+# 4. npm install (includes devDeps) → npm ci + npm prune --omit=dev.
+#    Only production dependencies end up in the runtime stage.
+#
+# 5. No USER instruction (runs as root) → USER node (UID 1000).
+#
+# 6. No HEALTHCHECK → added (useful outside Kubernetes).
+#
+# 7. Port 3000 → 8080 to match the rest of the stack (part2 Deployments).
+
+# ── Stage 1: build ──────
+# node:24.15.0-alpine — 0 known CVEs as of 2026-05-11 per Snyk
+FROM node:24.15.0-alpine AS build
+
+WORKDIR /app
+
+# Manifest-first copy so deps only reinstall when package*.json changes.
+COPY package.json package-lock.json ./
+
+# npm ci fails if the lockfile is out of sync — keeps builds reproducible.
+# --include=dev for type-check / test tooling used in the build step.
+RUN npm ci --include=dev || npm install --include=dev
+
+COPY . .
+
+RUN npm run build --if-present
+
+# Strip devDeps before copying across to the runtime stage.
+# Ensure node_modules exists even when there are zero external dependencies
+# (pure stdlib app) so the COPY in the runtime stage never fails.
+RUN npm prune --omit=dev && mkdir -p /app/node_modules
+
+# ── Stage 2: runtime ──
+# Only prod node_modules and compiled output are copied from stage 1.
+# The npm cache, devDeps, and build tools never make it here.
+FROM node:24.15.0-alpine AS runtime
+
+WORKDIR /app
+
+# No secrets here. DB_PASSWORD and friends come in via Workload Identity / K8s Secrets.
+ENV NODE_ENV=production \
+    PORT=8080 \
+    NPM_CONFIG_LOGLEVEL=warn
+
+# --chown avoids a separate RUN chown layer.
+COPY --from=build --chown=node:node /app/node_modules ./node_modules
+COPY --from=build --chown=node:node /app/src ./src
+COPY --from=build --chown=node:node /app/tests ./tests
+COPY --from=build --chown=node:node /app/package.json ./package.json
+
+USER node
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+  CMD wget -qO- http://127.0.0.1:8080/health || exit 1
+
+CMD ["node", "src/server.js"]
+

@@ -24,7 +24,18 @@ _Optional notes here._
 >
 > What annotation must be present on the ServiceAccount for the Workload Identity binding to work, and why?
 
-_Your answer here._
+The ServiceAccount must carry:
+
+```yaml
+annotations:
+  azure.workload.identity/client-id: "<uami-client-id>"
+```
+
+The AKS Workload Identity mutating webhook reads this annotation to know which Azure Managed Identity the pod should assume. Without it the webhook skips the pod entirely — it does not inject the AZURE_CLIENT_ID environment variable nor the projected OIDC token volume mount. The pod starts but every Azure SDK call fails at authentication because there is nothing to exchange.
+
+Optionally, `azure.workload.identity/tenant-id` can be added if the identity lives in a different tenant than the cluster; it defaults to the cluster's tenant if omitted.
+
+The pod spec also needs the label azure.workload.identity/use: `"true"` to opt into the mutation — the webhook ignores pods without it, which is the safe default so other workloads are unaffected.
 
 ---
 
@@ -33,6 +44,7 @@ _Your answer here._
 ### 2.1 Completed Pipeline
 
 > No written answer needed — your completed `part2/pipeline.yml` is the answer.
+Done
 
 ---
 
@@ -40,15 +52,21 @@ _Your answer here._
 
 > How would you structure the pipeline differently for feature branches vs main?
 
-_Your answer here._
+Feature branches run the full CI stage — build, test, and scan — so every PR gets a quality gate. The push and GitOps update stages are skipped entirely (enforced by the `condition: eq(variables['Build.SourceBranchName'], 'main')` on both the push step and the `UpdateGitOps` stage). This means a feature branch never writes to the registry or triggers a deployment; it only proves the code is safe to merge. On `main`, after the push succeeds, the GitOps update runs automatically and ArgoCD picks up the change within its sync interval.
 
 > Where would you add a manual approval gate, and why only there?
 
-_Your answer here._
+Between staging and production, using an Azure DevOps **Environment approval** on the `prod` environment resource. 
+Not before dev — dev should be fully automated to keep the feedback loop fast. 
+Not before staging — staging validation is also automated (smoke tests, integration tests), but it can be also manual if needed as it can ruin the manual test if someone is doing it on a specific release candidate. 
+The gate sits only before prod because that is the only environment where a bad deploy has direct patient impact and cannot be quietly rolled back without communication. 
+The approval also creates an audit record required under SaMD change control: a named person explicitly approved the release at a specific time.
 
 > How do you ensure the same image digest is deployed through dev → staging → prod rather than rebuilt?
 
-_Your answer here._
+The image is built and pushed **once** in the CI stage, tagged with `$(Build.BuildNumber)-$(Build.SourceVersion)`. That tag encodes the exact commit SHA, so it uniquely identifies one build. 
+Promotion to staging and production is done by copying that same tag string into the staging/prod Kustomize overlay and committing it — no rebuild, no new `docker build`. ArgoCD then pulls the exact same layer digest from ACR that dev already ran. 
+To make this even stricter in production would pin by digest (`image@sha256:...`) rather than tag, since a tag can theoretically be overwritten; a digest cannot that will bring extra transparency to the audit log.
 
 ---
 
@@ -64,15 +82,26 @@ _Your answer here._
 
 > What does the Azure DevOps pipeline do to trigger a deployment to dev?
 
-_Your answer here._
-
+On a successful merge to `main`, the `UpdateGitOps` stage runs `kustomize edit set image` to update the `newTag` for [team-alpha-backend-green](part2/overlays/dev/kustomization.yaml#L13) in [part2/overlays/dev/kustomization.yaml](part2/overlays/dev/kustomization.yaml), then commits and pushes that change back to the repo. 
+ArgoCD polls the repo on its sync interval and detects the new commit. Because `automated.prune` and `selfHeal` are enabled, it reconciles the cluster state to match Git — pulling the new image and rolling out the updated Deployment — without any manual intervention.
+[part1/workload-identity.bicep](part1/workload-identity.bicep)
 > What triggers promotion to staging, and then to production?
 
-_Your answer here._
+Promotion is a deliberate, human-reviewed Git operation — not an automatic pipeline step. A team member (or a promotion script) opens a PR that copies the verified image tag from `overlays/dev/kustomization.yaml` into [overlays/staging/kustomization.yaml](overlays/staging/kustomization.yaml). 
+Merging that PR is the promotion event: ArgoCD's staging Application detects the commit and syncs. 
+Production follows the same pattern — a PR from staging into `overlays/prod/kustomization.yaml`, but gated by the Azure DevOps Environment approval that requires a named reviewer to sign off before the PR can be merged.
 
 > What is the benefit of this model over having the pipeline kubectl apply directly?
 
-_Your answer here._
+Four benefits by using this model: 
+
+(1) **Auditability** — every deployment is a Git commit in a version control environment with an author, timestamp, and diff, which satisfies SaMD change-control requirements without extra tooling. 
+
+(2) **Drift detection** — ArgoCD continuously compares cluster state to Git and alerts (or self-heals) if they diverge, meaning an ad-hoc `kubectl` change is immediately visible and reversible. 
+
+(3) **Rollback is a revert** — to undo a bad release someone can revert the commit; ArgoCD syncs the old state back, so that no pipeline re-run is needed. That rollback is also auditable with a clear record of who did it and why (in the commit message). Moreover, the revert back can be done automatically by ArgoCD if it's set up a sync failure hook to trigger a rollback on failed health checks after a deploy — giving a near-instant remediation without waiting for a human to notice and react, and maybe it would be a acceptable to realease on Friday :) (NO). Though the automatic rollback pattern should be used very carefully in production as it can cause instability.  
+
+(4) **Separation of concerns** — CI proves the code is safe; CD is a separate, auditable promotion step. With `kubectl apply` in the pipeline will lose all of these: no drift detection, no approval record, rollback requires another pipeline run.
 
 ---
 
@@ -92,7 +121,7 @@ _Optional notes here._
 
 > Describe the Kubernetes-side controls you would add. Cover securityContext fields, capability dropping, and cluster-wide enforcement.
 
-_Your answer here._
+
 
 ---
 
@@ -100,11 +129,15 @@ _Your answer here._
 
 > How does image scanning fit into a compliance-grade pipeline?
 
-_Your answer here._
+Scanning goes after the image is built but before it is pushed to the registry — this is the only position where it gates the rest of the pipeline. 
+In the current `part2/pipeline.yml` this is the `ScanImage` step that runs Trivy with `--exit-code 3 --severity CRITICAL`: if any critical CVE is found the step exits non-zero, the push step is skipped, and the build fails with a clear message. 
+This means a vulnerable image can never reach the registry, let alone a cluster.
+
+For a SaMD pipeline the scan result must also be stored as a build artefact (the full JSON report) so it forms part of the Design History File (DHF). 
+The threshold for failure should be agreed with QA — typically `CRITICAL` must fail the build immediately; `HIGH` fails unless it was agreed upon in the issue tracker.
 
 > What would you add beyond scanning (SBOMs, image signing, provenance attestation) and what problem does each solve?
 
-_Your answer here._
 
 ---
 
@@ -148,7 +181,11 @@ _Your answer here._
 
 > Walk through your investigation of intermittent HTTP 504s — specific tools, queries, and what you are confirming or ruling out at each step.
 
-_Your answer here._
+504 means the upstream (the backend pod) didn't respond in time — the pods are running, so the issue is either slow processing, a blocked downstream call, or a networking problem between the ingress and the pod. I work through layers:
+
+A 504 can be caused by a slow handler, but also by a downstream dependency (e.g. Key Vault) or a network issue. So I check each layer to isolate the root cause.
+Havign in mind hte infrastructure I would follow where and how the timeout is happening — is it the backend itself, a downstream dependency, or the network layer between the ingress and the pod? 
+
 
 ---
 
@@ -156,7 +193,9 @@ _Your answer here._
 
 > Describe your rollback procedure in a GitOps model — actions, order, and communication. Aim for under 5 minutes.
 
-_Your answer here._
+Deployed on Friday, 2pm — error rate spikes from 0.5% to 12% at 2:02pm, correlating with the deploy. Then decreases and increases again. That pattern suggests a rollback immediately to minimize patient impact, but also that the bad image is still in the registry and can be redeployed if needed after investigation.
+The communication is critical here — the incident channel should be alerted immediately with a clear message that includes the error rate, timing, and correlation with the deploy, along with the action being taken (rollback now, investigation later). This sets expectations for stakeholders and keeps everyone informed. Then a decisive rollback action can be taken without delay, and the team can focus on the investigation after the immediate impact is mitigated. That would take some time to write and send, but it's essential for transparency and trust.
+Git revert is the key here — it allows for a single-command rollback that automatically triggers ArgoCD to sync back to the previous image.
 
 ---
 

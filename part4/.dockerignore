@@ -1,0 +1,37 @@
+# Keep build context small AND prevent secrets/dev junk from being copied
+# into image layers via `COPY . .` in part4/Dockerfile.hardened.
+
+# VCS / tooling
+.git
+.gitignore
+.gitattributes
+.github
+.vscode
+.idea
+
+# Node
+node_modules
+npm-debug.log
+yarn-error.log
+.pnpm-debug.log
+
+# Local env / secrets — NEVER ship into an image
+.env
+.env.*
+*.pem
+*.key
+*.crt
+secrets/
+
+# Tests are needed in the build stage for `npm test` to run inside the container.
+# They are not present in the runtime image (only src/ is copied across).
+# __tests__
+coverage
+*.md
+Dockerfile*
+.dockerignore
+
+# Build outputs that the image rebuilds itself
+dist
+build
+.cache

@@ -32,7 +32,7 @@ stages:
             displayName: 'Build Docker image'
             inputs:
               command: build
-              dockerfile: 'part4/Dockerfile'
+              dockerfile: 'part4/Dockerfile.hardened'
               buildContext: 'part4'
               repository: '$(containerRegistry)/$(imageRepository)'
               tags: '$(imageTag)'
@@ -50,20 +50,20 @@ stages:
           # The job must FAIL if critical vulnerabilities are found
 
           # Using Trivy via Docker
-          # --exit-code 2 causes the job to FAIL if any CRITICAL vulnerabilities are found
+          # --exit-code 3 causes the job to FAIL if any CRITICAL vulnerabilities are found
           - script: |
               echo "Pulling aquasec/trivy:latest — alpine-based image "
               docker run --rm \
                 -v /var/run/docker.sock:/var/run/docker.sock \
                 aquasec/trivy:latest image \
-                --exit-code 2 \
+                --exit-code 3 \
                 --severity CRITICAL \
                 --no-progress \
                 $(containerRegistry)/$(imageRepository):$(imageTag)
               EXIT_CODE=$?
-              if [ $EXIT_CODE -eq 2 ]; then
+              if [ $EXIT_CODE -eq 3 ]; then
                 echo "##[error]CRITICAL vulnerabilities found — failing the build"
-                exit 2
+                exit 3
               elif [ $EXIT_CODE -eq 1 ]; then
                 echo "##[error]Trivy scan failed to complete (network/image error)"
                 exit 1
